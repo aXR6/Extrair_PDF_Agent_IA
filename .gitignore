@@ -1,0 +1,10 @@
+# Ignorar as subpastas old/ e teste/
+old/
+teste/
+
+# Ignorar listar.sh e .env em qualquer lugar
+listar.sh
+.env
+
+# Ignorar arquivos pycache em qualquer lugar
+__pycache__/
