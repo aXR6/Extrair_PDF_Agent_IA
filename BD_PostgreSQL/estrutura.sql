@@ -89,15 +89,14 @@ BEGIN
   ),
   scored AS (
     SELECT
-      knn_ts.parent, 
-      knn_ts.id, 
-      knn_ts.content, 
-      knn_ts.metadata, 
+      knn_ts.parent, knn_ts.id, knn_ts.content, knn_ts.metadata,
       1 - knn_ts.dist AS sim,
       COALESCE(
-        CASE WHEN query_tsq IS NOT NULL AND knn_ts.tsv_full @@ query_tsq
-          THEN ts_rank(knn_ts.tsv_full, query_tsq)
-        END,
+        CASE 
+          WHEN query_tsq IS NOT NULL AND knn_ts.tsv_full @@ query_tsq THEN ts_rank(knn_ts.tsv_full, query_tsq)
+          WHEN query_text IS NOT NULL AND knn_ts.content COLLATE "C" LIKE query_text THEN 1
+          ELSE 0
+        END, 
         0
       ) AS lex_rank
     FROM knn_ts
