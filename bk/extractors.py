@@ -1,4 +1,3 @@
-#extractors.py
 import fitz
 from PyPDF2 import PdfReader
 from pdf2image import convert_from_path

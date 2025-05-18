@@ -1,43 +1,28 @@
+#adaptive_chunker.py
 import os
 import logging
 import re
 from typing import List
-import torch
-
 from config import (
     CHUNK_SIZE,
     CHUNK_OVERLAP,
     SEPARATORS,
     SLIDING_WINDOW_OVERLAP_RATIO,
-    SIMILARITY_THRESHOLD,
-    SBERT_MODEL_NAME,
-    MAX_SEQ_LENGTH
+    SIMILARITY_THRESHOLD
 )
 from langchain.text_splitter import TokenTextSplitter
 from sentence_transformers import SentenceTransformer, util
 from transformers import pipeline
 from transformers.utils import logging as tf_logging
 
-# Suprime avisos transformers
+# Suppress transformer warnings
 os.environ["TRANSFORMERS_NO_ADVISORY_WARNINGS"] = "1"
 tf_logging.set_verbosity_error()
 
-# Cache de instâncias SBERT
-_SBERT_CACHE: dict = {}
-def get_sbert_model(model_name: str) -> SentenceTransformer:
-    if model_name not in _SBERT_CACHE:
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-        _SBERT_CACHE[model_name] = SentenceTransformer(model_name, device=device)
-    return _SBERT_CACHE[model_name]
+# Initialize SBERT model for semantic chunking once
+_sbert = SentenceTransformer('all-MiniLM-L6-v2')
 
-# Inicializa SBERT e define limite de tokens
-_sbert = get_sbert_model(SBERT_MODEL_NAME)
-try:
-    MODEL_MAX_TOKENS = getattr(_sbert, "max_seq_length", _sbert.tokenizer.model_max_length)
-except:
-    MODEL_MAX_TOKENS = MAX_SEQ_LENGTH
-
-# Lazy-loaded pipelines
+# Lazy-loaded pipelines to avoid OOM on import
 _summarizer = None
 _ner = None
 _paraphraser = None
@@ -132,14 +117,13 @@ def hierarchical_chunk(text: str, metadata: dict) -> List[str]:
     sections = semantic_fine_sections(text)
     for sec in sections:
         enriched = transform_content(sec)
-        tokens = _sbert.tokenizer.tokenize(enriched)
-        if len(tokens) <= MODEL_MAX_TOKENS:
+        if len(enriched) <= CHUNK_SIZE:
             final_chunks.append(enriched)
         else:
-            max_ov = int(MODEL_MAX_TOKENS * SLIDING_WINDOW_OVERLAP_RATIO)
-            parts = sliding_window_chunk(enriched, MODEL_MAX_TOKENS, max_ov)
+            max_ov = min(CHUNK_OVERLAP, int(len(enriched) * SLIDING_WINDOW_OVERLAP_RATIO))
+            parts = sliding_window_chunk(enriched, CHUNK_SIZE, max_ov)
             if not parts:
-                logging.warning(f"Fallback recursivo para seção len={len(enriched)}")
+                logging.warning(f"Fallback recursive para seção len={len(enriched)}")
                 parts = TokenTextSplitter(
                     separators=SEPARATORS,
                     chunk_size=CHUNK_SIZE,
