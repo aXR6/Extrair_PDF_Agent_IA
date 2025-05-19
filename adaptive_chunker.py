@@ -1,3 +1,5 @@
+# adaptive_chunker.py
+
 import os
 import logging
 import re
@@ -9,12 +11,12 @@ from config import (
     CHUNK_OVERLAP,
     SEPARATORS,
     SLIDING_WINDOW_OVERLAP_RATIO,
-    SIMILARITY_THRESHOLD,
     SBERT_MODEL_NAME,
     MAX_SEQ_LENGTH
 )
+from utils import filter_paragraphs
 from langchain.text_splitter import TokenTextSplitter
-from sentence_transformers import SentenceTransformer, util
+from sentence_transformers import SentenceTransformer
 from transformers import pipeline
 from transformers.utils import logging as tf_logging
 
@@ -94,22 +96,29 @@ def transform_content(section: str) -> str:
     input_len = len(words)
     max_len = min(150, max(10, input_len // 2))
     min_len = max(5, int(max_len * 0.25))
+
+    # sumarização
     try:
         summary = get_summarizer()(section, max_length=max_len, min_length=min_len, truncation=True)[0]['summary_text']
     except Exception as e:
         logging.warning(f"Sumarização falhou: {e}")
         summary = section
+
+    # extração de entidades
     try:
         ents = get_ner()(section)
         ent_str = '; '.join({e['word'] for e in ents})
     except Exception as e:
         logging.warning(f"NER falhou: {e}")
         ent_str = ''
+
+    # paráfrase
     try:
         para = get_paraphraser()(summary, max_length=max_len)[0]['generated_text']
     except Exception as e:
         logging.warning(f"Paráfrase falhou: {e}")
         para = summary
+
     header = f"Entities: {ent_str}\n" if ent_str else ''
     enriched = f"{header}Paraphrase: {para}\nOriginal: {section}"
     return enriched
@@ -129,7 +138,15 @@ def sliding_window_chunk(p: str, window_size: int, overlap: int) -> List[str]:
 
 def hierarchical_chunk(text: str, metadata: dict) -> List[str]:
     final_chunks: List[str] = []
-    sections = semantic_fine_sections(text)
+
+    # 1) Pré-filtragem: remove sumários/ToC e parágrafos curtos
+    paras = filter_paragraphs(text)
+    clean_text = "\n\n".join(paras)
+
+    # 2) Segmentação semântica
+    sections = semantic_fine_sections(clean_text)
+
+    # 3) Chunking e enrich
     for sec in sections:
         enriched = transform_content(sec)
         tokens = _sbert.tokenizer.tokenize(enriched)
@@ -146,4 +163,5 @@ def hierarchical_chunk(text: str, metadata: dict) -> List[str]:
                     chunk_overlap=max_ov
                 ).split_text(enriched)
             final_chunks.extend(parts)
+
     return final_chunks
