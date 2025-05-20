@@ -71,47 +71,6 @@ Funções auxiliares para logging, validação de arquivos, geração de relató
 
 ---
 
-## Commit Breve
-
-**Autor:** Thalles Canela <<thalles@example.com>>  
-**Data:** 2025-05-20 12:34:56 -0300
-
-### feat(rag): expansão de queries, re-ranking com cross-encoder e métricas Prometheus
-
-- **adaptive_chunker.py**
-    - Implementada a função `expand_query()` usando WordNet para expansão de queries (pseudo-relevance feedback).
-    - Integrada a expansão de queries (`__query_expanded`) ao método `hierarchical_chunk()` para enriquecer as buscas.
-    - Mantida a lógica existente de chunking e enriquecimento (sumarização, NER, paráfrase).
-    - Adicionado helper `get_cross_encoder()` para carregar CrossEncoder do Sentence-Transformers.
-
-- **pg_storage.py**
-    - `generate_embedding()` mantido inalterado.
-    - Adicionada função `rerank_with_cross_encoder()` para re-ranking dos resultados RAG via cross-encoder.
-    - Função `save_to_postgres()` agora decorada com `@record_metrics` (de metrics.py).
-    - `save_to_postgres()`:
-        - Insere semantic chunks normalmente.
-        - Aplica re-ranking com cross-encoder nos chunks inseridos.
-        - Retorna documentos rerankeados.
-
-- **metrics.py** (novo)
-    - Integração com Prometheus:
-        - Métricas: `QUERY_COUNT`, `QUERY_LATENCY`, `RESULT_COUNT`.
-        - Decorator `record_metrics` para medição automática.
-        - Servidor HTTP na porta 8000 expondo `/metrics`.
-
-- **README.md**
-    - Documentação atualizada para:
-        - Expansão de queries.
-        - Passo de re-ranking com cross-encoder.
-        - Monitoramento de métricas com Prometheus.
-        - Instruções de uso do endpoint `/metrics`.
-
-- **requirements.txt**
-    - Adicionada dependência `prometheus_client`.
-
-Essas mudanças aprimoram a precisão do RAG com pseudo-relevance feedback, re-ranking detalhado e monitoramento em tempo real das métricas de performance das queries.
-
-
 ## Estrutura do Banco de Dados (PostgreSQL)
 
 - **Tabela `documents`:** cada chunk é uma linha com `content`, `metadata` (`JSONB`), `embedding` (`VECTOR`) e `tsv_full`.
@@ -140,25 +99,25 @@ Essas mudanças aprimoram a precisão do RAG com pseudo-relevance feedback, re-r
 2. Aplique as DDLs no PostgreSQL.
 3. Instale dependências:
 
-     ```sh
-     pip install -r requirements.txt
-     ```
+    ```sh
+    pip install -r requirements.txt
+    ```
 
 ### Execução
 
 1. Inicie o serviço de métricas (Prometheus) se desejar:
 
-     ```sh
-     # já é iniciado automaticamente pelo metrics.py na porta 8000
-     ```
+    ```sh
+    # já é iniciado automaticamente pelo metrics.py na porta 8000
+    ```
 
 2. Rode o menu principal:
 
-     ```sh
-     python3 main.py
-     ```
+    ```sh
+    python3 main.py
+    ```
 
-3. Selecione estratégia de extração, banco de dados e informe arquivo ou pasta.
+3. Selecione a estratégia de extração, banco de dados e informe o arquivo ou pasta.
 
 4. Acompanhe logs, progresso e consulte métricas em [http://localhost:8000/metrics](http://localhost:8000/metrics).
 
@@ -171,6 +130,46 @@ Essas mudanças aprimoram a precisão do RAG com pseudo-relevance feedback, re-r
 - Monitore Precision@k e Recall@k via dashboards Prometheus/Grafana.
 
 ---
+
+## Commit Breve
+
+**Autor:** Thalles Canela <<thalles@example.com>>  
+**Data:** 2025-05-20 12:34:56 -0300
+
+### feat(rag): expansão de queries, re-ranking com cross-encoder e métricas Prometheus
+
+- **adaptive_chunker.py**
+    - Implementada a função `expand_query()` usando WordNet para expansão de queries (pseudo-relevance feedback).
+    - Integrada a expansão de queries (`__query_expanded`) ao método `hierarchical_chunk()` para enriquecer as buscas.
+    - Mantida a lógica existente de chunking e enriquecimento (sumarização, NER, paráfrase).
+    - Adicionado helper `get_cross_encoder()` para carregar CrossEncoder do Sentence-Transformers.
+
+- **pg_storage.py**
+    - `generate_embedding()` mantido inalterado.
+    - Adicionada função `rerank_with_cross_encoder()` para re-ranking dos resultados RAG via cross-encoder.
+    - Função `save_to_postgres()` agora decorada com `@record_metrics` (de metrics.py).
+    - `save_to_postgres()`:
+        - Insere semantic chunks normalmente.
+        - Aplica re-ranking com cross-encoder nos chunks inseridos.
+        - Retorna documentos reranqueados.
+
+- **metrics.py** (novo)
+    - Integração com Prometheus:
+        - Métricas: `QUERY_COUNT`, `QUERY_LATENCY`, `RESULT_COUNT`.
+        - Decorator `record_metrics` para medição automática.
+        - Servidor HTTP na porta 8000 expondo `/metrics`.
+
+- **README.md**
+    - Documentação atualizada para:
+        - Expansão de queries.
+        - Passo de re-ranking com cross-encoder.
+        - Monitoramento de métricas com Prometheus.
+        - Instruções de uso do endpoint `/metrics`.
+
+- **requirements.txt**
+    - Adicionada dependência `prometheus_client`.
+
+Essas mudanças aprimoram a precisão do RAG com pseudo-relevance feedback, re-ranking detalhado e monitoramento em tempo real das métricas de performance das queries.
 
 ## Autoria
 
