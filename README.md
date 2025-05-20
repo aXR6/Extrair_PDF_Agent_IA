@@ -2,27 +2,28 @@
 
 ## Visão Geral
 
-Este projeto implementa um pipeline completo para extração, processamento, chunking, enriquecimento semântico e indexação de documentos PDF e DOCX em bancos de dados MongoDB e PostgreSQL. Suporta busca semântica via embeddings e busca textual híbrida (RAG).
+Este projeto oferece um pipeline completo para extração, processamento, chunking, enriquecimento semântico e indexação de documentos PDF e DOCX em bancos de dados MongoDB e PostgreSQL. Permite buscas semânticas com embeddings, busca híbrida (RAG), re-ranking e monitoramento de métricas.
 
-O sistema integra OCR, NLP, sumarização, NER e múltiplas estratégias de extração, permitindo consultas avançadas e rápidas sobre grandes volumes de documentos técnicos ou acadêmicos.
+O sistema integra OCR, NLP, sumarização, NER, expansão de queries e múltiplas estratégias de extração, possibilitando consultas avançadas e rápidas sobre grandes volumes de documentos técnicos ou acadêmicos.
 
 ---
 
-## Funcionalidades Principais
+## Funcionalidades
 
-- **Extração de texto avançada** de PDFs/DOCX usando diferentes estratégias (OCR, Tika, PyPDF, Unstructured, PDFMiner, etc.)
-- **Chunking inteligente:** divisão dos documentos em seções/chunks, com regras hierárquicas, sliding window, enriquecimento semântico, sumarização, NER e paráfrase.
-- **Geração automática de embeddings** (via API do Ollama ou compatível) para cada chunk, permitindo busca vetorial.
+- **Extração avançada de texto** de PDFs/DOCX usando OCR, Tika, PyPDF, Unstructured, PDFMiner, entre outros.
+- **Chunking inteligente:** divisão dos documentos em seções/chunks, com regras hierárquicas, sliding window e enriquecimento semântico (sumarização, NER, paráfrase).
+- **Expansão de queries:** aplicação de sinônimos e termos relacionados via WordNet para melhorar o recall.
+- **Geração automática de embeddings** (Ollama ou SBERT local) para cada chunk, permitindo busca vetorial.
+- **Re-ranking com Cross-Encoder:** pós-processamento dos resultados de busca vetorial para maior precisão.
+- **Monitoramento de métricas:** coleta de contagem de queries, latência e número de resultados via Prometheus (`/metrics`).
 - **Indexação de dados:**
     - **MongoDB:** armazenamento de chunks, metadados e arquivos binários.
-    - **PostgreSQL:** armazenamento de chunks, metadados, embeddings (usando pgvector) e campo `tsv_full` para busca textual híbrida (RAG).
-- **População automática dos índices** (`tsv_full` via trigger).
-- **Estrutura de banco preparada para buscas semânticas híbridas** (função `match_documents_hybrid`).
-- **Configuração flexível** via `.env`.
-- **Interface CLI** com menu para facilitar escolha de estratégia de extração e banco alvo.
-- **Extração e enriquecimento de metadados automáticos** dos arquivos.
+    - **PostgreSQL:** armazenamento de chunks, metadados, embeddings (pgvector), `tsv_full` para busca híbrida e função `match_documents_hybrid`.
+- **Triggers e índices automáticos:** mantém `tsv_full` sincronizado e utiliza índices vetoriais (HNSW/IVFFlat) e trigramas para metadata.
+- **Interface CLI intuitiva:** menu para seleção de estratégia de extração, banco de dados, chunking e embeddings.
 - **Processamento em lote** de pastas com barra de progresso.
-- **Compatível com automações** e integrações com n8n, pipelines ETL, APIs, etc.
+- **Configuração flexível** via `.env`.
+- **Compatível com ETL, API REST e orquestradores** como n8n.
 
 ---
 
@@ -30,27 +31,32 @@ O sistema integra OCR, NLP, sumarização, NER e múltiplas estratégias de extr
 
 <details>
 <summary><strong>main.py</strong></summary>
-Responsável pelo fluxo principal do CLI: seleção de estratégia de extração e banco de dados, processamento individual ou em lote, coordenação das etapas e chamada dos módulos auxiliares.
+Gerencia o fluxo principal do CLI: seleção de estratégias, banco de dados, processamento e coordenação dos módulos.
 </details>
 
 <details>
 <summary><strong>config.py</strong></summary>
-Carrega as configurações do projeto a partir do arquivo `.env` e define variáveis globais (URIs, senhas, parâmetros de chunk, OCR, separadores, etc).
+Carrega configurações do projeto a partir do `.env` e define variáveis globais.
 </details>
 
 <details>
 <summary><strong>extractors.py</strong></summary>
-Módulo com todas as estratégias de extração de texto (PyPDF, PDFMiner, Unstructured, OCR, etc.) e utilitário para metadados.
+Implementa estratégias de extração de texto (PyPDF, PDFMiner, Unstructured, OCR, etc.) e extração de metadados.
 </details>
 
 <details>
 <summary><strong>adaptive_chunker.py</strong></summary>
-Responsável por dividir o texto extraído em chunks significativos, aplicando chunking hierárquico, sliding window, sumarização, NER e paráfrase.
+Divide o texto extraído em chunks com chunking hierárquico, sliding window, sumarização, NER, paráfrase e query expansion.
+</details>
+
+<details>
+<summary><strong>metrics.py</strong></summary>
+Coleta métricas de RAG (contagem de queries, latência, número de resultados) e expõe endpoint Prometheus.
 </details>
 
 <details>
 <summary><strong>pg_storage.py</strong></summary>
-Integração e escrita dos dados no PostgreSQL, geração de embeddings, inserção de chunks e metadados, uso de pool de conexões.
+Integração com PostgreSQL: geração e inserção de embeddings, chunking semântico, re-ranking com cross-encoder e registro de métricas.
 </details>
 
 <details>
@@ -60,19 +66,20 @@ Persistência no MongoDB, salvando metadados, arquivos binários e integração 
 
 <details>
 <summary><strong>utils.py</strong></summary>
-Funções auxiliares para logging, validação de arquivos, geração de relatórios, filtragem de parágrafos e chunking recursivo.
+Funções auxiliares para logging, validação de arquivos, geração de relatórios e filtragem de parágrafos.
 </details>
 
 ---
 
 ## Estrutura do Banco de Dados (PostgreSQL)
 
-- **Tabela `documents`:** cada chunk é uma linha, com conteúdo, metadados (`JSONB`), embedding (`vector`) e `tsv_full`.
-- **Triggers:** mantêm `tsv_full` sincronizado automaticamente.
+- **Tabela `documents`:** cada chunk é uma linha com `content`, `metadata` (`JSONB`), `embedding` (`VECTOR`) e `tsv_full`.
+- **Triggers:** mantêm `tsv_full` atualizado automaticamente.
 - **Índices:**
-    - Vetoriais (IVFFlat, HNSW via pgvector)
-    - Full-text (GIN para `tsv_full`)
-- **Função `match_documents_hybrid`:** busca híbrida de chunks por similaridade vetorial e score léxico, com pós-filtragem por contexto pai.
+    - **Vetoriais:** HNSW e IVFFlat via pgvector.
+    - **Full-text:** GIN em `tsv_full`.
+    - **Trigramas:** GiST+pg_trgm em campos críticos de metadata.
+- **Funções:** `match_documents_hybrid` e `match_documents_precise` para busca híbrida.
 
 ---
 
@@ -83,14 +90,14 @@ Funções auxiliares para logging, validação de arquivos, geração de relató
 - Python 3.8+
 - PostgreSQL 15+ com extensão `pgvector`
 - MongoDB (opcional)
-- Dependências Python (ver `requirements.txt`)
-- API de embeddings (Ollama ou compatível)
+- Dependências Python (`requirements.txt`)
+- API de embeddings (Ollama ou SBERT local)
 
 ### Configuração
 
-1. Configure o `.env` conforme suas credenciais e parâmetros.
-2. Garanta que as estruturas SQL estejam aplicadas ao PostgreSQL.
-3. Instale as dependências:
+1. Ajuste o `.env` com suas credenciais e parâmetros.
+2. Aplique as DDLs no PostgreSQL.
+3. Instale dependências:
 
      ```sh
      pip install -r requirements.txt
@@ -98,32 +105,32 @@ Funções auxiliares para logging, validação de arquivos, geração de relató
 
 ### Execução
 
-1. Rode o menu principal:
+1. Inicie o serviço de métricas (Prometheus) se desejar:
+
+     ```sh
+     # já é iniciado automaticamente pelo metrics.py na porta 8000
+     ```
+
+2. Rode o menu principal:
 
      ```sh
      python3 main.py
      ```
 
-2. Escolha a estratégia de extração (ex: OCR, PyPDF, Unstructured).
-3. Escolha o banco de dados (MongoDB ou PostgreSQL).
-4. Informe o arquivo ou pasta para processar.
-5. Acompanhe o progresso e verifique logs/resultados no banco escolhido.
+3. Selecione estratégia de extração, banco de dados e informe arquivo ou pasta.
+
+4. Acompanhe logs, progresso e consulte métricas em [http://localhost:8000/metrics](http://localhost:8000/metrics).
 
 ---
 
-## FAQ e Observações
+## FAQ & Dicas
 
-- Ajuste `chunk_size`/`chunk_overlap` conforme o contexto dos documentos.
-- Integração com n8n e outros orchestrators é direta via SQL ou API REST.
-- Performance pode ser tunada ajustando parâmetros dos índices.
-- Para grandes volumes, use processamento em batch para evitar throttling da API de embedding.
-- Em caso de ambiguidade SQL, sempre qualifique o campo com o alias do select/CTE.
+- Ajuste `min_cos_sim` e `min_score` em suas queries SQL para controlar precisão.
+- Para alta precisão, utilize re-ranking e thresholds mais altos.
+- Monitore Precision@k e Recall@k via dashboards Prometheus/Grafana.
 
 ---
 
-## Autores & Colaboradores
+## Autoria
 
-Projeto desenvolvido para workflows de I.A., automação e pesquisa documental em larga escala, por [Thalles Canela].
-
----
-
+Desenvolvido por Thalles Canela para workflows de IA e pesquisa documental em larga escala.

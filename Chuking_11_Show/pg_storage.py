@@ -1,21 +1,16 @@
-# pg_storage.py
+#pg_storage.py
 import os
 import logging
 import json
 import psycopg2
 import torch
 
-from adaptive_chunker import hierarchical_chunk, get_cross_encoder, get_sbert_model
+from adaptive_chunker import hierarchical_chunk, get_sbert_model
 from config import PG_HOST, PG_PORT, PG_USER, PG_PASSWORD
-from metrics import record_metrics  # Decorator de métricas
 
 # Ajuste para evitar fragmentação de GPU
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
-# -------------------------------
-# Função antiga: generate_embedding
-# (mantida aqui, sem modificações)
-# -------------------------------
 def generate_embedding(
     text: str,
     model_name: str,
@@ -61,25 +56,6 @@ def generate_embedding(
 
     return emb
 
-# ---------------------------------------
-# Nova função: rerank_with_cross_encoder
-# ---------------------------------------
-def rerank_with_cross_encoder(results: list, query: str, top_k: int = None) -> list:
-    """
-    Re-rank os documentos usando um modelo cross-encoder para maior precisão.
-    """
-    ce = get_cross_encoder()
-    pairs = [(query, r['content']) for r in results]
-    scores = ce.predict(pairs)
-    for r, s in zip(results, scores):
-        r['rerank_score'] = float(s)
-    ranked = sorted(results, key=lambda x: x['rerank_score'], reverse=True)
-    return ranked[:top_k] if top_k else ranked
-
-# ----------------------------------------------------------------
-# Função aprimorada: save_to_postgres com re-ranking e métricas
-# ----------------------------------------------------------------
-@record_metrics
 def save_to_postgres(
     filename: str,
     text: str,
@@ -89,11 +65,8 @@ def save_to_postgres(
     db_name: str
 ):
     """
-    Conecta ao PostgreSQL e insere cada chunk em public.documents,
-    retorna documentos reordenados via cross-encoder e coleta métricas.
-
-    Mantém funções antigas de chunking e geração de embedding,
-    adiciona re-ranking e métricas.
+    Conecta ao database 'db_name' dinamicamente e insere cada chunk
+    em public.documents (content, metadata JSONB, embedding vector).
     """
     conn = None
     try:
@@ -105,34 +78,25 @@ def save_to_postgres(
             password=PG_PASSWORD
         )
         cur = conn.cursor()
-
-        # Chunking semântico (função antiga hierárquica)
         chunks = hierarchical_chunk(text, metadata)
-        inserted = []
         logging.info(f"'{filename}' → {len(chunks)} chunks para salvar")
 
-        # Inserção de cada chunk
         for idx, chunk in enumerate(chunks):
             clean_chunk = chunk.replace("\x00", "")
             emb = generate_embedding(clean_chunk, embedding_model, embedding_dim)
-            rec = {**metadata, "__parent": filename, "__chunk_index": idx}
+            record = {
+                **metadata,
+                "__parent": filename,
+                "__chunk_index": idx
+            }
             cur.execute(
-                "INSERT INTO public.documents (content, metadata, embedding) VALUES (%s, %s::jsonb, %s) RETURNING id",
-                (clean_chunk, json.dumps(rec, ensure_ascii=False), emb)
+                "INSERT INTO public.documents (content, metadata, embedding) "
+                "VALUES (%s, %s::jsonb, %s)",
+                (clean_chunk, json.dumps(record, ensure_ascii=False), emb)
             )
-            doc_id = cur.fetchone()[0]
-            inserted.append({'id': doc_id, 'content': clean_chunk, 'metadata': rec})
 
         conn.commit()
         logging.info(f"Dados inseridos em '{db_name}'.")
-
-        # Re-ranking usando cross-encoder (nova etapa)
-        query_text = metadata.get('__query', '')
-        reranked = rerank_with_cross_encoder(inserted, query_text)
-        logging.info(f"Inseridos {len(inserted)} chunks; retornando {len(reranked)} após re-ranking.")
-
-        return reranked
-
     except Exception as e:
         logging.error(f"Erro ao salvar em {db_name}: {e}")
         if conn:

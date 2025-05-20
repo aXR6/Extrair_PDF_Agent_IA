@@ -30,5 +30,3 @@ requests
 
 # === Outras utilidades ===
 gridfs  # via pymongo
-
-prometheus_client

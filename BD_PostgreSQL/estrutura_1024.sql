@@ -258,3 +258,6 @@ $$;
 -- Não esqueça de ajustar também, em sessão, os parâmetros do índice:
 -- SET hnsw.ef_search = 200;            -- para HNSW, mais recall
 -- SET ivfflat.probes   = 50;            -- para IVFFlat, mais coesão
+
+CREATE INDEX ON public.documents USING gist ((metadata->>'title') gist_trgm_ops);
+CREATE INDEX ON public.documents USING gist ((metadata->>'__parent') gist_trgm_ops);

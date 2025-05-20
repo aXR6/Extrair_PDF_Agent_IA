@@ -1,12 +1,9 @@
 # adaptive_chunker.py
-
 import os
 import logging
 import re
 from typing import List
 import torch
-import nltk
-from nltk.corpus import wordnet
 
 from config import (
     CHUNK_SIZE,
@@ -26,30 +23,13 @@ from transformers.utils import logging as tf_logging
 os.environ["TRANSFORMERS_NO_ADVISORY_WARNINGS"] = "1"
 tf_logging.set_verbosity_error()
 
-# Garante que o WordNet esteja disponível
-try:
-    nltk.data.find('corpora/wordnet')
-except LookupError:
-    nltk.download('wordnet', quiet=True)
-
-# Cache de instâncias SBERT e Cross-Encoder
+# Cache de instâncias SBERT
 _SBERT_CACHE: dict = {}
-_CROSS_ENCODER_CACHE: dict = {}
-
 def get_sbert_model(model_name: str) -> SentenceTransformer:
     if model_name not in _SBERT_CACHE:
         device = "cuda" if torch.cuda.is_available() else "cpu"
         _SBERT_CACHE[model_name] = SentenceTransformer(model_name, device=device)
     return _SBERT_CACHE[model_name]
-
-def get_cross_encoder(model_name: str = 'cross-encoder/ms-marco-MiniLM-L-6-v2'):
-    """
-    Retorna um CrossEncoder para re-ranking de pares (query, documento).
-    """
-    if model_name not in _CROSS_ENCODER_CACHE:
-        from sentence_transformers import CrossEncoder
-        _CROSS_ENCODER_CACHE[model_name] = CrossEncoder(model_name)
-    return _CROSS_ENCODER_CACHE[model_name]
 
 # Inicializa SBERT e define limite de tokens
 _sbert = get_sbert_model(SBERT_MODEL_NAME)
@@ -58,7 +38,7 @@ try:
 except:
     MODEL_MAX_TOKENS = MAX_SEQ_LENGTH
 
-# Funções antigas de transform_content, sliding_window_chunk e semantic_fine_sections
+# Lazy-loaded pipelines
 _summarizer = None
 _ner = None
 _paraphraser = None
@@ -80,6 +60,7 @@ def get_ner():
         _ner = pipeline(
             'ner',
             model='dbmdz/bert-large-cased-finetuned-conll03-english',
+            revision='4c53496',
             aggregation_strategy='simple',
             device=-1
         )
@@ -154,37 +135,17 @@ def sliding_window_chunk(p: str, window_size: int, overlap: int) -> List[str]:
             break
     return chunks
 
-# Nova função de expansão de query
-
-def expand_query(text: str, top_k: int = 5) -> str:
-    """
-    Gera termos de expansão usando sinônimos do WordNet para melhorar recall.
-    """
-    terms = []
-    try:
-        for token in set(text.lower().split()):
-            syns = wordnet.synsets(token)
-            if syns:
-                lemmas = {l.name().replace('_', ' ') for s in syns for l in s.lemmas()}
-                terms.extend(list(lemmas)[:top_k])
-    except Exception as e:
-        logging.warning(f"Expansão de query falhou: {e}")
-    expanded = text + ' ' + ' '.join(terms)
-    return expanded.strip()
-
-# Versão aprimorada de hierarchical_chunk
-
 def hierarchical_chunk(text: str, metadata: dict) -> List[str]:
-    # Prepara query expandida se fornecido
-    query = metadata.get('__query')
-    if query:
-        metadata['__query_expanded'] = expand_query(query)
-
     final_chunks: List[str] = []
+
+    # 1) Pré-filtragem: remove sumários/ToC e parágrafos curtos
     paras = filter_paragraphs(text)
     clean_text = "\n\n".join(paras)
+
+    # 2) Segmentação semântica
     sections = semantic_fine_sections(clean_text)
 
+    # 3) Chunking e enrich
     for sec in sections:
         enriched = transform_content(sec)
         tokens = _sbert.tokenizer.tokenize(enriched)
@@ -194,6 +155,7 @@ def hierarchical_chunk(text: str, metadata: dict) -> List[str]:
             max_ov = int(MODEL_MAX_TOKENS * SLIDING_WINDOW_OVERLAP_RATIO)
             parts = sliding_window_chunk(enriched, MODEL_MAX_TOKENS, max_ov)
             if not parts:
+                logging.warning(f"Fallback recursivo para seção len={len(enriched)}")
                 parts = TokenTextSplitter(
                     separators=SEPARATORS,
                     chunk_size=CHUNK_SIZE,

@@ -162,8 +162,8 @@ CREATE OR REPLACE FUNCTION public.match_documents_precise(
   filter          JSONB    DEFAULT '{}',
   weight_vec      FLOAT    DEFAULT 0.6,
   weight_lex      FLOAT    DEFAULT 0.4,
-  min_cos_sim     FLOAT    DEFAULT 0.8,  -- similaridade de cosseno mínima
-  min_score       FLOAT    DEFAULT 0.5,  -- score combinado mínimo
+  min_cos_sim     FLOAT    DEFAULT 0.8,
+  min_score       FLOAT    DEFAULT 0.5,
   pool_multiplier INT      DEFAULT 10
 )
 RETURNS TABLE (
@@ -185,21 +185,21 @@ BEGIN
       d.embedding <#> query_embedding AS cos_dist,
       d.tsv_full
     FROM public.documents d
-    WHERE
-      d.metadata @> filter
+    WHERE d.metadata @> filter
       AND (d.embedding <#> query_embedding) <= max_cos_dist
     ORDER BY d.embedding <#> query_embedding
     LIMIT match_count * pool_multiplier
   ),
   knn_ts AS (
-    SELECT *,
+    SELECT
+      kp.*,
       CASE
         WHEN query_text IS NULL THEN NULL
         WHEN query_text ~ '^".*"$'
-          THEN phraseto_tsquery('simple', trim(both '"' from query_text))
+          THEN phraseto_tsquery('simple', trim(both '"' FROM query_text))
         ELSE websearch_to_tsquery('simple', query_text)
       END AS query_tsq
-    FROM knn_pool
+    FROM knn_pool kp
   ),
   scored AS (
     SELECT
@@ -209,10 +209,11 @@ BEGIN
       (1 - kt.cos_dist) AS sim,
       COALESCE(
         CASE
-          WHEN kt.query_tsq IS NOT NULL AND kt.tsv_full @@ kt.query_tsq
+          WHEN kt.query_tsq IS NOT NULL
+            AND kt.tsv_full @@ kt.query_tsq
             THEN ts_rank(kt.tsv_full, kt.query_tsq)
-          WHEN kt.query_text IS NOT NULL
-            AND kt.content ILIKE '%' || kt.query_text || '%'
+          WHEN query_text IS NOT NULL
+            AND kt.content ILIKE '%' || query_text || '%'
             THEN 1
           ELSE 0
         END,
@@ -258,3 +259,6 @@ $$;
 -- Não esqueça de ajustar também, em sessão, os parâmetros do índice:
 -- SET hnsw.ef_search = 200;            -- para HNSW, mais recall
 -- SET ivfflat.probes   = 50;            -- para IVFFlat, mais coesão
+
+CREATE INDEX ON public.documents USING gist ((metadata->>'title') gist_trgm_ops);
+CREATE INDEX ON public.documents USING gist ((metadata->>'__parent') gist_trgm_ops);
