@@ -103,6 +103,46 @@ Funções auxiliares para logging, validação de arquivos, geração de relató
     pip install -r requirements.txt
     ```
 
+### Configuração do NLTK
+
+#### 1. Instalar corpora via APT
+
+Em Debian 12, existem pacotes que fornecem tanto o código do NLTK quanto muitos dos datasets mais usados.
+
+```bash
+sudo apt-get update                                 # Atualiza lista de pacotes  
+sudo apt-get install -y python3-nltk nltk-data      # Instala o NLTK e os dados via repositório oficial  
+```
+O pacote `python3-nltk` traz a biblioteca em si e algumas dependências.  
+O pacote `nltk-data` inclui boa parte dos corpora “popular” já prontos, evitando downloads via HTTP direto dos servidores do NLTK.
+
+#### 2. Download manual para um diretório local
+
+Se precisar apenas de alguns corpora específicos, você pode baixá-los manualmente e armazenar numa pasta local:
+
+Crie o diretório de dados, por exemplo:
+
+```bash
+sudo mkdir -p /usr/local/share/nltk_data/{corpora,tokenizers,taggers}
+sudo chown -R $USER: /usr/local/share/nltk_data
+```
+
+Baixe pacotes individuais do GitHub do projeto nltk_data. Exemplo:
+
+```bash
+cd /usr/local/share/nltk_data/corpora
+wget https://raw.githubusercontent.com/nltk/nltk_data/gh-pages/packages/corpora/stopwords.zip
+unzip stopwords.zip
+rm stopwords.zip
+```
+
+Aponte o NLTK para esse diretório (opcional, se não estiver no padrão):
+
+```python
+import nltk
+nltk.data.path.append('/usr/local/share/nltk_data')
+```
+
 ### Execução
 
 1. Inicie o serviço de métricas (Prometheus) se desejar:
