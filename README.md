@@ -1,4 +1,3 @@
-````markdown
 # 🧠 Extração, Chunking e Indexação Inteligente de Documentos PDF/DOCX
 
 ## Visão Geral
@@ -16,112 +15,109 @@ O sistema processa recursivamente todas as subpastas e pastas "irmãs" do diret�
 
 ---
 
-## Funcionalidades Detalhadas
+## Funcionalidades
 
-### 1. Extração de Texto
+### Extração de Texto
 
 - Detecção automática de PDFs criptografados e fallback OCR.
 - Suporte a:
-  - **PyPDFLoader**
-  - **PDFMinerLoader**
-  - **PDFMiner Low-Level (pdfminer.six)**
-  - **Unstructured (.docx)**
-  - **OCR (pytesseract)**
-  - **PDFPlumber**
-  - **Apache Tika**
-  - **PyMuPDF4LLM** (Markdown)
+    - PyPDFLoader
+    - PDFMinerLoader
+    - PDFMiner Low-Level (pdfminer.six)
+    - Unstructured (.docx)
+    - OCR (pytesseract)
+    - PDFPlumber
+    - Apache Tika
+    - PyMuPDF4LLM (Markdown)
 
-### 2. Chunking Inteligente
+### Chunking Inteligente
 
-1. **Filtro de parágrafos**: remove sumários, índices e trechos curtos.
-2. **Divisão Hierárquica**: detecta títulos seccionados (`\d+(?:\.\d+)*`) para chunks semânticos.
-3. **Enriquecimento**:
-   - **Sumarização** (DistilBART)
-   - **Reconhecimento de Entidades** (NER)
-   - **Paráfrase** (T5)
-4. **Sliding Window**: garante sobreposição controlada entre chunks grandes.
-5. **TokenTextSplitter**: usa separadores customizáveis para dividir caso exceda limites.
-6. **Padding Tokens**: embeddings são truncados ou preenchidos com zeros para manter dimensão estável.
-7. **Expansão de Query**: sinônimos via WordNet e injeção em metadata `__query_expanded`.
+- **Filtro de parágrafos**: remove sumários, índices e trechos curtos.
+- **Divisão Hierárquica**: detecta títulos seccionados (`\d+(?:\.\d+)*`) para chunks semânticos.
+- **Enriquecimento**:
+    - Sumarização (DistilBART)
+    - Reconhecimento de Entidades (NER)
+    - Paráfrase (T5)
+- **Sliding Window**: garante sobreposição controlada entre chunks grandes.
+- **TokenTextSplitter**: usa separadores customizáveis para dividir caso exceda limites.
+- **Padding Tokens**: embeddings são truncados ou preenchidos com zeros para manter dimensão estável.
+- **Expansão de Query**: sinônimos via WordNet e injeção em metadata `__query_expanded`.
 
-### 3. Indexação e Buscas
+### Indexação e Buscas
 
 - **MongoDB**:
-  - Metadados, textos chunked e arquivos binários em GridFS.
+    - Metadados, textos chunked e arquivos binários em GridFS.
 - **PostgreSQL**:
-  - Tabela `public.documents` com colunas: `content`, `metadata` (JSONB), `embedding` (VECTOR), `tsv_full`.
-  - **Triggers**: `tsvector_update_trigger` mantém `tsv_full` atualizado.
-  - **Índices**:
-    - Vetoriais (HNSW/IVFFlat) via pgvector
-    - Full-text GIN em `tsv_full`
-    - Trigramas (pg_trgm) em metadata
+    - Tabela `public.documents` com colunas: `content`, `metadata` (JSONB), `embedding` (VECTOR), `tsv_full`.
+    - Triggers: `tsvector_update_trigger` mantém `tsv_full` atualizado.
+    - Índices:
+        - Vetoriais (HNSW/IVFFlat) via pgvector
+        - Full-text GIN em `tsv_full`
+        - Trigramas (pg_trgm) em metadata
 - **Funções de Busca**:
-  - `match_documents_hybrid()` para busca híbrida RAG
-  - `match_documents_precise()` para buscas precisas
+    - `match_documents_hybrid()` para busca híbrida RAG
+    - `match_documents_precise()` para buscas precisas
 
-### 4. Re-ranking e Métricas
+### Re-ranking e Métricas
 
-- **Cross-Encoder** para re-ranking pós-embeddings.
-- **Prometheus Client**:
-  - `QUERY_EXECUTIONS`, `QUERY_DURATION`, `LAST_QUERY_RESULT_COUNT`.
-  - Servidor HTTP `/metrics` (porta 8000).
+- Cross-Encoder para re-ranking pós-embeddings.
+- Prometheus Client:
+    - `QUERY_EXECUTIONS`, `QUERY_DURATION`, `LAST_QUERY_RESULT_COUNT`.
+    - Servidor HTTP `/metrics` (porta 8000).
 
-### 5. CLI e Batch Processing
+### CLI e Batch Processing
 
 - Menu interativo para configurar:
-  - Estratégia de extração
-  - Banco de dados (MongoDB/PostgreSQL)
-  - Schema PostgreSQL
-  - Modelo de embedding e dimensão
-- **Processar Arquivo** ou **Processar Pasta**:
-  - Busca recursiva em subpastas e pastas irmãs.
-  - Barra de progresso (tqdm).
+    - Estratégia de extração
+    - Banco de dados (MongoDB/PostgreSQL)
+    - Schema PostgreSQL
+    - Modelo de embedding e dimensão
+- Processar arquivo ou pasta:
+    - Busca recursiva em subpastas e pastas irmãs.
+    - Barra de progresso (tqdm).
 
 ---
 
 ## Técnica de Chunking e Padding
 
 - Os chunks são gerados com tamanho máximo definido por `CHUNK_SIZE` e overlap `CHUNK_OVERLAP`.
-- **Sliding Window** aplica overlap percentual (`SLIDING_WINDOW_OVERLAP_RATIO`) ao dividir tokens quando necessários.
+- Sliding Window aplica overlap percentual (`SLIDING_WINDOW_OVERLAP_RATIO`) ao dividir tokens quando necessário.
 - Ao gerar embeddings, usamos `SentenceTransformer.encode` e, se o vetor tiver tamanho diferente de `dim`, ele é:
-  - **Truncado** se maior que `dim`.
-  - **Preenchido com zeros** para operar no mesmo espaço dimensional, assegurando consistência nos índices pgvector.
+    - Truncado se maior que `dim`.
+    - Preenchido com zeros para operar no mesmo espaço dimensional, assegurando consistência nos índices pgvector.
 
 ---
 
-## Instalação e Uso
+## Instalação
 
 1. Clone o repositório:
-    ```sh
-    git clone https://github.com/seu_usuario/seu_projeto.git
-    cd seu_projeto
-    ```
+        ```sh
+        git clone https://github.com/seu_usuario/seu_projeto.git
+        cd seu_projeto
+        ```
 2. Configure variáveis no `.env`.
 3. Instale dependências:
-    ```sh
-    pip install -r requirements.txt
-    ```
+        ```sh
+        pip install -r requirements.txt
+        ```
 4. Configure corpora NLTK (via pacote OS ou download manual).
 5. Aplique DDLs em PostgreSQL para habilitar `pgvector`, trigramas e criar funções.
 6. Execute métricas (iniciado automaticamente no import de `metrics.py`).
 7. Rode o CLI:
-    ```sh
-    python3 main.py
-    ```
+        ```sh
+        python3 main.py
+        ```
 
 ---
 
-## Commit Breve
+## Exemplo de Commit
 
 ```text
 feat(cli): varredura recursiva de raiz e pastas irmãs
 
 - main.py: ao processar pasta, agora inclui:
-  • Pasta raiz informada
-  • Todas as pastas irmãs no mesmo nível
-  • Busca recursiva em cada diretório usando os.walk
+    • Pasta raiz informada
+    • Todas as pastas irmãs no mesmo nível
+    • Busca recursiva em cada diretório usando os.walk
 - README.md: documentada nova funcionalidade de processamento em lote recursivo
-````
-
-```
 ```
