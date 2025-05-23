@@ -38,11 +38,25 @@ SBERT_MODEL_NAME = os.getenv(
 )
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Parâmetros de chunking e OCR
+# Parâmetros de extração OCR
 # ──────────────────────────────────────────────────────────────────────────────
-OCR_THRESHOLD            = int(os.getenv("OCR_THRESHOLD", "100"))
-CHUNK_SIZE               = int(os.getenv("CHUNK_SIZE", "1000"))
-CHUNK_OVERLAP            = int(os.getenv("CHUNK_OVERLAP", "700"))
+OCR_THRESHOLD = int(os.getenv("OCR_THRESHOLD", "100"))
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Parâmetros de chunking
+# ──────────────────────────────────────────────────────────────────────────────
+# tamanho de chunk (padrão 512, pode ser sobrescrito via env CHUNK_SIZE)
+CHUNK_SIZE_ENV = os.getenv("CHUNK_SIZE")
+if CHUNK_SIZE_ENV:
+    CHUNK_SIZE = int(CHUNK_SIZE_ENV)
+else:
+    CHUNK_SIZE = 512
+# overlap de 50% do chunk por padrão, ou define via env CHUNK_OVERLAP
+CHUNK_OVERLAP_ENV = os.getenv("CHUNK_OVERLAP")
+if CHUNK_OVERLAP_ENV:
+    CHUNK_OVERLAP = int(CHUNK_OVERLAP_ENV)
+else:
+    CHUNK_OVERLAP = CHUNK_SIZE // 2
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Separadores customizáveis
@@ -56,9 +70,9 @@ SEPARATORS = _sep_env.split("|") if _sep_env else ["\n\n", "\n", ".", "!", "?", 
 OCR_LANGUAGES = os.getenv("OCR_LANGUAGES", "eng+por")
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Sliding-window e semantic chunking (avançado)
+# Sliding-window e semantic chunking
 # ──────────────────────────────────────────────────────────────────────────────
-SLIDING_WINDOW_OVERLAP_RATIO = float(os.getenv("SLIDING_WINDOW_OVERLAP_RATIO", "0.2"))
+SLIDING_WINDOW_OVERLAP_RATIO = float(os.getenv("SLIDING_WINDOW_OVERLAP_RATIO", "0.25"))
 SIMILARITY_THRESHOLD         = float(os.getenv("SIMILARITY_THRESHOLD", "0.8"))
 
 # ──────────────────────────────────────────────────────────────────────────────

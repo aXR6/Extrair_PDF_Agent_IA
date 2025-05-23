@@ -1,4 +1,3 @@
-#main.py
 #!/usr/bin/env python3
 import os
 import logging
@@ -12,6 +11,7 @@ from config import (
     GRIDFS_BUCKET,
     OCR_THRESHOLD
 )
+from adaptive_chunker import get_sbert_model, SBERT_MODEL_NAME  # import para pré-carregamento
 from utils import (
     setup_logging,
     is_valid_file,
@@ -33,11 +33,14 @@ from storage import save_metadata, save_file_binary, save_gridfs
 from pg_storage import save_to_postgres
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Inicialização de logs
+# Inicialização de logs e pré-carregamento SBERT
 # ──────────────────────────────────────────────────────────────────────────────
 logging.getLogger("pdfminer").setLevel(logging.ERROR)
 logging.getLogger("PyPDF2").setLevel(logging.ERROR)
 setup_logging()
+
+# Pré-carrega o modelo SBERT uma única vez para cache
+get_sbert_model(SBERT_MODEL_NAME)
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Estratégias de extração
@@ -95,7 +98,6 @@ DIMENSIONS = {
 def clear_screen():
     os.system("clear")  # 'cls' no Windows
 
-
 def select_strategy():
     print("\n*** Estratégias Disponíveis ***")
     for k, label in [
@@ -112,14 +114,12 @@ def select_strategy():
         print(f"{k} - {label}")
     return STRAT_OPTIONS.get(input("Escolha [5]: ").strip())
 
-
 def select_sgbd():
     print("\n*** Seleção de SGBD ***")
     print("1 - MongoDB")
     print("2 - PostgreSQL")
     print("0 - Voltar")
     return SGDB_OPTIONS.get(input("Escolha [1]: ").strip())
-
 
 def select_schema():
     print("\n*** Schemas PostgreSQL Disponíveis ***")
@@ -128,7 +128,6 @@ def select_schema():
     print("3 - vector_384_teste")
     print("0 - Voltar")
     return DB_SCHEMA_OPTIONS.get(input("Escolha [1]: ").strip())
-
 
 def select_embedding_model():
     print("\n*** Modelos de Embeddings Disponíveis ***")
@@ -141,7 +140,6 @@ def select_embedding_model():
     ]:
         print(f"{k} - {label}")
     return EMBEDDING_MODELS.get(input("Escolha [1]: ").strip())
-
 
 def select_dimension():
     print("\n*** Dimensão dos Embeddings ***")
@@ -202,7 +200,6 @@ def process_file(
 # ──────────────────────────────────────────────────────────────────────────────
 # Fluxo principal
 # ──────────────────────────────────────────────────────────────────────────────
-
 def main():
     current_strat   = "ocr"
     current_sgbd    = "mongo"
@@ -216,11 +213,10 @@ def main():
         print("*** Menu Principal ***")
         print(f"1 - Selecionar Estratégia    (atual: {current_strat})")
         print(f"2 - Selecionar SGBD          (atual: {current_sgbd})")
+        offset = 0
         if current_sgbd == "postgres":
             print(f"3 - Selecionar Schema        (atual: {current_schema})")
             offset = 1
-        else:
-            offset = 0
         print(f"{3+offset} - Processar Arquivo")
         print(f"{4+offset} - Processar Pasta")
         print(f"{5+offset} - Selecionar Embedding     (atual: {current_model})")
@@ -253,15 +249,31 @@ def main():
         elif choice == str(4+offset):
             clear_screen()
             folder = input("Caminho da pasta: ").strip()
-            files = [f for f in os.listdir(folder) if f.lower().endswith((".pdf", ".docx"))]
-            if not files:
-                print("Nenhum PDF/DOCX encontrado.")
+            # Inclui a pasta raiz e suas pastas irmãs
+            parent = os.path.dirname(folder)
+            roots = [folder]
+            if os.path.isdir(parent):
+                for entry in os.listdir(parent):
+                    path = os.path.join(parent, entry)
+                    if path != folder and os.path.isdir(path):
+                        roots.append(path)
+            # Varre recursivamente todas as raízes
+            all_files = []
+            for root in roots:
+                for r, _, filenames in os.walk(root):
+                    for filename in filenames:
+                        if filename.lower().endswith((".pdf", ".docx")):
+                            all_files.append(os.path.join(r, filename))
+
+            if not all_files:
+                print("Nenhum PDF/DOCX encontrado nas pastas especificadas.")
                 input("\nENTER para voltar…")
                 continue
-            print(f"Processando {len(files)} arquivos…")
-            for f in tqdm(files, desc="Arquivos", unit="file"):
+
+            print(f"Processando {len(all_files)} arquivos em múltiplas pastas…")
+            for path in tqdm(all_files, desc="Arquivos", unit="file"):
                 process_file(
-                    os.path.join(folder, f),
+                    path,
                     current_strat,
                     current_sgbd,
                     current_schema,

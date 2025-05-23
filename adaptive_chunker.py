@@ -1,5 +1,3 @@
-# adaptive_chunker.py
-
 import os
 import logging
 import re
@@ -37,9 +35,20 @@ _SBERT_CACHE: dict = {}
 _CROSS_ENCODER_CACHE: dict = {}
 
 def get_sbert_model(model_name: str) -> SentenceTransformer:
+    """
+    Retorna instância de SentenceTransformer em cache ou carrega e cacheia.
+    Em caso de falha de OSError, exibe mensagem clara e interrompe.
+    """
     if model_name not in _SBERT_CACHE:
         device = "cuda" if torch.cuda.is_available() else "cpu"
-        _SBERT_CACHE[model_name] = SentenceTransformer(model_name, device=device)
+        try:
+            _SBERT_CACHE[model_name] = SentenceTransformer(model_name, device=device)
+        except OSError as e:
+            logging.error(
+                f"Não foi possível carregar SBERT '{model_name}': {e}.\n"
+                f"Verifique se o identificador está correto e se há conexão ou cache local."
+            )
+            raise
     return _SBERT_CACHE[model_name]
 
 def get_cross_encoder(model_name: str = 'cross-encoder/ms-marco-MiniLM-L-6-v2'):
@@ -51,11 +60,16 @@ def get_cross_encoder(model_name: str = 'cross-encoder/ms-marco-MiniLM-L-6-v2'):
         _CROSS_ENCODER_CACHE[model_name] = CrossEncoder(model_name)
     return _CROSS_ENCODER_CACHE[model_name]
 
-# Inicializa SBERT e define limite de tokens
-_sbert = get_sbert_model(SBERT_MODEL_NAME)
+# Pré-carrega modelo SBERT na importação do módulo
+try:
+    _sbert = get_sbert_model(SBERT_MODEL_NAME)
+except Exception:
+    raise
+
+# Define limite de tokens com base no tokenizer
 try:
     MODEL_MAX_TOKENS = getattr(_sbert, "max_seq_length", _sbert.tokenizer.model_max_length)
-except:
+except Exception:
     MODEL_MAX_TOKENS = MAX_SEQ_LENGTH
 
 # Funções antigas de transform_content, sliding_window_chunk e semantic_fine_sections
@@ -154,8 +168,6 @@ def sliding_window_chunk(p: str, window_size: int, overlap: int) -> List[str]:
             break
     return chunks
 
-# Nova função de expansão de query
-
 def expand_query(text: str, top_k: int = 5) -> str:
     """
     Gera termos de expansão usando sinônimos do WordNet para melhorar recall.
@@ -172,10 +184,7 @@ def expand_query(text: str, top_k: int = 5) -> str:
     expanded = text + ' ' + ' '.join(terms)
     return expanded.strip()
 
-# Versão aprimorada de hierarchical_chunk
-
 def hierarchical_chunk(text: str, metadata: dict) -> List[str]:
-    # Prepara query expandida se fornecido
     query = metadata.get('__query')
     if query:
         metadata['__query_expanded'] = expand_query(query)
