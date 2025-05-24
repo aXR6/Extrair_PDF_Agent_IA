@@ -2,122 +2,180 @@
 
 ## Visão Geral
 
-Este projeto implementa um pipeline completo para:
+Este projeto oferece um pipeline completo para processamento de documentos PDF e DOCX, incluindo:
 
-- **Extração de texto**: múltiplas estratégias (PyPDF, PDFMiner, OCR, Tika, Unstructured, PyMuPDF4LLM).
-- **Chunking inteligente**: técnicas hierárquicas, sliding-window, sumarização, NER, paráfrase e expansão de queries.
-- **Indexação e buscas**: embeddings vetoriais (Ollama ou SBERT), busca híbrida (RAG) em PostgreSQL/pgvector e MongoDB.
-- **Re-ranking**: Cross-Encoder para aumentar precisão dos resultados.
-- **Monitoramento**: métricas em Prometheus (queries, latência, resultados).
-- **CLI interativo**: menu para seleção de estratégia, SGBD, schema, modelo e batch processing de pastas.
+- **Extração de Texto** com múltiplas estratégias (PyPDF2, PDFMiner, OCR, Tika, Unstructured, PDFPlumber, PyMuPDF4LLM)
+- **Chunking Inteligente**: filtros de parágrafos, enriquecimento semântico (sumarização, NER, paráfrase, expansão de queries) e sliding-window
+- **Embeddings Vetoriais**: suporte a múltiplos modelos (Ollama, Serafim-PT, MPNet-EN, MiniLM)
+- **Indexação e Busca** híbrida (RAG) no PostgreSQL/pgvector e MongoDB/GridFS
+- **Re-ranking** com Cross-Encoder (ms-marco) para maior precisão
+- **Monitoramento** via Prometheus (latência, contagem de buscas, tamanho dos resultados)
+- **CLI Interativo**: seleção de estratégia, banco, schema, modelo, dimensão e batch-processing recursivo
 
-O sistema processa recursivamente todas as subpastas e pastas "irmãs" do diretório raiz informado, garantindo cobertura completa de documentos.
+O CLI processa automaticamente todos os subdiretórios e “pastas irmãs” do caminho raiz indicado, com barra de progresso.
 
 ---
 
 ## Funcionalidades
 
-### Extração de Texto
+### 1. Extração de Texto
 
-- Detecção automática de PDFs criptografados e fallback OCR.
-- Suporte a:
-    - PyPDFLoader
-    - PDFMinerLoader
+- **Híbrido automático**: detecta PDFs criptografados e faz fallback OCR (pytesseract) se necessário
+- **Estratégias disponíveis**:
+    - PyPDFLoader (LangChain)
+    - PDFMinerLoader (LangChain)
     - PDFMiner Low-Level (pdfminer.six)
     - Unstructured (.docx)
-    - OCR (pytesseract)
+    - OCR Strategy (pytesseract + pdf2image)
     - PDFPlumber
     - Apache Tika
-    - PyMuPDF4LLM (Markdown)
+    - PyMuPDF4LLM → Markdown
 
-### Chunking Inteligente
+### 2. Chunking Inteligente
 
-- **Filtro de parágrafos**: remove sumários, índices e trechos curtos.
-- **Divisão Hierárquica**: detecta títulos seccionados (`\d+(?:\.\d+)*`) para chunks semânticos.
-- **Enriquecimento**:
-    - Sumarização (DistilBART)
-    - Reconhecimento de Entidades (NER)
-    - Paráfrase (T5)
-- **Sliding Window**: garante sobreposição controlada entre chunks grandes.
-- **TokenTextSplitter**: usa separadores customizáveis para dividir caso exceda limites.
-- **Padding Tokens**: embeddings são truncados ou preenchidos com zeros para manter dimensão estável.
-- **Expansão de Query**: sinônimos via WordNet e injeção em metadata `__query_expanded`.
+1. **Filtragem de parágrafos**: remove sumários, índices e trechos curtos (< 50 caracteres)
+2. **Divisão hierárquica**: reconhece headings numéricos (`1.2 Seção`) e quebra em seções semânticas
+3. **Enriquecimento de conteúdo**:
+     - **Sumarização** (`sshleifer/distilbart-cnn-12-6`)
+     - **NER** (`dbmdz/bert-large-cased-finetuned-conll03-english`)
+     - **Paráfrase** (`t5-small`)
+4. **Sliding-Window**: sobreposição percentual configurável (`SLIDING_WINDOW_OVERLAP_RATIO`)
+5. **TokenTextSplitter**: separadores customizados para textos longos
+6. **Padding / Truncamento**: embeddings ajustados para dimensão estável
+7. **Expansão de Query**: sinônimos via WordNet em `metadata.__query_expanded`
 
-### Indexação e Buscas
+### 3. Modelos de Embedding & Dimensões
 
-- **MongoDB**:
-    - Metadados, textos chunked e arquivos binários em GridFS.
-- **PostgreSQL**:
-    - Tabela `public.documents` com colunas: `content`, `metadata` (JSONB), `embedding` (VECTOR), `tsv_full`.
-    - Triggers: `tsvector_update_trigger` mantém `tsv_full` atualizado.
-    - Índices:
-        - Vetoriais (HNSW/IVFFlat) via pgvector
-        - Full-text GIN em `tsv_full`
-        - Trigramas (pg_trgm) em metadata
-- **Funções de Busca**:
-    - `match_documents_hybrid()` para busca híbrida RAG
-    - `match_documents_precise()` para buscas precisas
+Disponíveis no menu CLI:
 
-### Re-ranking e Métricas
+| Opção | Modelo                                                                                   | Dimensão |
+|:-----:|:-----------------------------------------------------------------------------------------|:--------:|
+| 1     | `mxbai-embed-large` (Ollama API)                                                         | 1024     |
+| 2     | `PORTULAN/serafim-900m-portuguese-pt-sentence-encoder` (pt-BR)                           | 1536     |
+| 3     | `sentence-transformers/all-mpnet-base-v2` (English MPNet)                                | 768      |
+| 4     | `sentence-transformers/all-MiniLM-L6-v2` (MiniLM L6 multilingual)                        | 384      |
+| 5     | `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` (MiniLM L12 multilingual)  | 384      |
 
-- Cross-Encoder para re-ranking pós-embeddings.
-- Prometheus Client:
-    - `QUERY_EXECUTIONS`, `QUERY_DURATION`, `LAST_QUERY_RESULT_COUNT`.
-    - Servidor HTTP `/metrics` (porta 8000).
+> O arquivo `.env` contém variáveis para cada modelo e dimensão (ver seção “Configuração”).
 
-### CLI e Batch Processing
+### 4. Indexação e Busca
 
-- Menu interativo para configurar:
-    - Estratégia de extração
-    - Banco de dados (MongoDB/PostgreSQL)
-    - Schema PostgreSQL
-    - Modelo de embedding e dimensão
-- Processar arquivo ou pasta:
-    - Busca recursiva em subpastas e pastas irmãs.
-    - Barra de progresso (tqdm).
+#### MongoDB
+
+- Documentos chunked + metadados na collection definida
+- Binários em GridFS
+
+#### PostgreSQL + pgvector
+
+- Tabela `public.documents`:
+    - `id` (BIGSERIAL)
+    - `content` (TEXT)
+    - `metadata` (JSONB)
+    - `embedding` (VECTOR(N)) — N = dimensão do modelo escolhido
+    - `tsv_full` (TSVECTOR)
+- Triggers e funções para manter `tsv_full` atualizado automaticamente
+- Índices:
+    - **HNSW** / **IVFFlat** para vetores
+    - **GIN** em `tsv_full`
+    - **GIST+pg_trgm** para campos críticos de metadata
+
+#### Funções de Busca
+
+- `match_documents_hybrid(query_embedding, query_text, …)`
+- `match_documents_precise(query_embedding, query_text, …)`
+
+### 5. Re-ranking & Métricas
+
+- **Cross-Encoder** (`cross-encoder/ms-marco-MiniLM-L-6-v2`) para reranking de pares (query, content)
+- **Prometheus**:
+    - Métricas expostas em `/metrics` (porta 8000):
+        - `rag_query_executions_total`
+        - `rag_query_duration_seconds`
+        - `rag_last_query_result_count`
+
+### 6. CLI Interativo & Batch Processing
+
+- **Menu Principal**:
+    1. Selecionar estratégia de extração
+    2. Selecionar SGBD (MongoDB ou PostgreSQL)
+    3. (se PostgreSQL) Selecionar schema (`vector_1024`, `vector_384`, `vector_1536`, `vector_768`)
+    4. Processar **arquivo**
+    5. Processar **pasta** (inclui subpastas + “pastas irmãs”)
+    6. Selecionar modelo de embedding
+    7. Selecionar dimensão
+    0. Sair
+- **Progress Bar** via `tqdm`
+- **Arquivos finalizados** movidos para subpasta `processed`
 
 ---
 
-## Técnica de Chunking e Padding
+## Como Usar
 
-- Os chunks são gerados com tamanho máximo definido por `CHUNK_SIZE` e overlap `CHUNK_OVERLAP`.
-- Sliding Window aplica overlap percentual (`SLIDING_WINDOW_OVERLAP_RATIO`) ao dividir tokens quando necessário.
-- Ao gerar embeddings, usamos `SentenceTransformer.encode` e, se o vetor tiver tamanho diferente de `dim`, ele é:
-    - Truncado se maior que `dim`.
-    - Preenchido com zeros para operar no mesmo espaço dimensional, assegurando consistência nos índices pgvector.
+1. **Clone o repositório**
+     ```bash
+     git clone https://github.com/seu_usuario/seu_projeto.git
+     cd seu_projeto
+     ```
+2. **Ajuste o `.env`** (veja seção abaixo)
+3. **Instale as dependências**
+     ```bash
+     pip install -r requirements.txt
+     ```
+4. **Aplique o DDL no PostgreSQL** para criar extensões, tabela, triggers e funções
+5. **Execute o CLI**
+     ```bash
+     python3 main.py
+     ```
 
----
+--- 
 
-## Instalação
+## Exemplo de `.env`
 
-1. Clone o repositório:
-        ```sh
-        git clone https://github.com/seu_usuario/seu_projeto.git
-        cd seu_projeto
-        ```
-2. Configure variáveis no `.env`.
-3. Instale dependências:
-        ```sh
-        pip install -r requirements.txt
-        ```
-4. Configure corpora NLTK (via pacote OS ou download manual).
-5. Aplique DDLs em PostgreSQL para habilitar `pgvector`, trigramas e criar funções.
-6. Execute métricas (iniciado automaticamente no import de `metrics.py`).
-7. Rode o CLI:
-        ```sh
-        python3 main.py
-        ```
+```dotenv
+# MongoDB
+MONGO_URI=mongodb://user:pass@host:27017/db?authSource=admin
+DB_NAME=ollama_chat
+COLL_PDF=PDF_
+COLL_BIN=Arq_PDF
+GRIDFS_BUCKET=fs
+
+# PostgreSQL
+PG_HOST=192.168.3.32
+PG_PORT=5432
+PG_DB=vector_store
+PG_USER=vector_store
+PG_PASSWORD=senha
+PG_SCHEMA=public
+
+# Modelos e dimensões
+OLLAMA_EMBEDDING_MODEL=mxbai-embed-large
+DIM_MXBAI=1024
+SERAFIM_EMBEDDING_MODEL=PORTULAN/serafim-900m-portuguese-pt-sentence-encoder
+DIM_SERAFIM=1536
+MPNET_EMBEDDING_MODEL=sentence-transformers/all-mpnet-base-v2
+DIM_MPNET=768
+MINILM_L6_V2=sentence-transformers/all-MiniLM-L6-v2
+DIM_MINILM_L6=384
+MINILM_L12_V2=sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
+DIM_MINIL12=384
+
+# Outros
+OCR_THRESHOLD=100
+CHUNK_SIZE=1024
+CHUNK_OVERLAP=700
+SLIDING_WINDOW_OVERLAP_RATIO=0.25
+MAX_SEQ_LENGTH=128
+```
 
 ---
 
 ## Exemplo de Commit
 
 ```text
-feat(cli): varredura recursiva de raiz e pastas irmãs
+feat(cli): adiciona modelo MPNet-EN e schema vector_768
 
-- main.py: ao processar pasta, agora inclui:
-    • Pasta raiz informada
-    • Todas as pastas irmãs no mesmo nível
-    • Busca recursiva em cada diretório usando os.walk
-- README.md: documentada nova funcionalidade de processamento em lote recursivo
+- .env: inclui MPNET_EMBEDDING_MODEL e DIM_MPNET
+- config.py: carrega novos modelos e dimensões
+- main.py: atualiza menu para opção MPNet e schema vector_768
+- SQL: adiciona tabela/vector dimension=”768”
 ```
