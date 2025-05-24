@@ -307,4 +307,4 @@ def main():
     logging.info("Aplicação encerrada.")
 
 if __name__ == "__main__":
-    main()
+    main() 
