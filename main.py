@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 import os
 import logging
+import shutil
 from tqdm import tqdm
+import concurrent.futures
 
 from config import (
     MONGO_URI,
@@ -31,7 +33,6 @@ from extractors import (
 )
 from storage import save_metadata, save_file_binary, save_gridfs
 from pg_storage import save_to_postgres
-import shutil
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Inicialização de logs e pré-carregamento SBERT
@@ -287,16 +288,12 @@ def main():
                 continue
 
             print(f"Processando {len(all_files)} arquivos em múltiplas pastas…")
-            for path in tqdm(all_files, desc="Arquivos", unit="file"):
-                process_file(
-                    path,
-                    current_strat,
-                    current_sgbd,
-                    current_schema,
-                    current_model,
-                    current_dim,
-                    results
-                )
+            # Multiprocessamento com ThreadPoolExecutor
+            with concurrent.futures.ThreadPoolExecutor(max_workers=os.cpu_count() or 4) as executor:
+                futures = {executor.submit(process_file, path, current_strat, current_sgbd, current_schema, current_model, current_dim, results): path
+                           for path in all_files}
+                for _ in tqdm(concurrent.futures.as_completed(futures), total=len(futures), desc="Arquivos", unit="file"):
+                    pass
             input("\nENTER para voltar…")
         elif choice == str(5+offset):
             clear_screen()
