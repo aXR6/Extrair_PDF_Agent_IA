@@ -4,6 +4,7 @@ import logging
 import shutil
 from tqdm import tqdm
 import concurrent.futures
+from itertools import repeat
 
 from config import (
     MONGO_URI,
@@ -40,7 +41,7 @@ from pg_storage import save_to_postgres
 logging.getLogger("pdfminer").setLevel(logging.ERROR)
 logging.getLogger("PyPDF2").setLevel(logging.ERROR)
 setup_logging()
-# Pré-carrega o modelo SBERT uma única vez para cache
+# Pré-carrega o modelo SBERT uma única vez
 get_sbert_model(SBERT_MODEL_NAME)
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -56,26 +57,15 @@ STRATEGIES = {
     "tika":         TikaStrategy(),
     "pymupdf4llm":  PyMuPDF4LLMStrategy(),
 }
-STRAT_OPTIONS = {
-    "1": "pypdf", "2": "pdfminer", "3": "pdfminer-low",
-    "4": "unstructured", "5": "ocr", "6": "plumber",
-    "7": "tika", "8": "pymupdf4llm", "0": None
-}
+STRAT_OPTIONS = {"1": "pypdf", "2": "pdfminer", "3": "pdfminer-low",
+                 "4": "unstructured", "5": "ocr", "6": "plumber",
+                 "7": "tika", "8": "pymupdf4llm", "0": None}
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Seleção de SGBD e Schemas PostgreSQL
 # ──────────────────────────────────────────────────────────────────────────────
-SGDB_OPTIONS = {
-    "1": "mongo",
-    "2": "postgres",
-    "0": None
-}
-DB_SCHEMA_OPTIONS = {
-    "1": "vector_1024",
-    "2": "vector_384",
-    "3": "vector_384_teste",
-    "0": None
-}
+SGDB_OPTIONS = {"1": "mongo", "2": "postgres", "0": None}
+DB_SCHEMA_OPTIONS = {"1": "vector_1024", "2": "vector_384", "3": "vector_384_teste", "0": None}
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Modelos e dimensões de embeddings
@@ -87,11 +77,7 @@ EMBEDDING_MODELS = {
     "4": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
     "0": None
 }
-DIMENSIONS = {
-    "1": 1024,
-    "2": 384,
-    "0": None
-}
+DIMENSIONS = {"1": 1024, "2": 384, "0": None}
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Helpers de menu
@@ -99,68 +85,49 @@ DIMENSIONS = {
 def clear_screen():
     os.system("clear")  # 'cls' no Windows
 
+
 def select_strategy():
     print("\n*** Estratégias Disponíveis ***")
     for k, label in [
-        ("1","PyPDFLoader"),
-        ("2","PDFMinerLoader"),
-        ("3","PDFMiner Low-Level"),
-        ("4","Unstructured (.docx)"),
-        ("5","OCR"),
-        ("6","PDFPlumber"),
-        ("7","Apache Tika"),
-        ("8","PyMuPDF4LLM"),
-        ("0","Voltar")
+        ("1","PyPDFLoader"),("2","PDFMinerLoader"),("3","PDFMiner Low-Level"),
+        ("4","Unstructured (.docx)"),("5","OCR"),("6","PDFPlumber"),
+        ("7","Apache Tika"),("8","PyMuPDF4LLM"),("0","Voltar")
     ]:
         print(f"{k} - {label}")
     return STRAT_OPTIONS.get(input("Escolha [5]: ").strip())
 
+
 def select_sgbd():
     print("\n*** Seleção de SGBD ***")
-    print("1 - MongoDB")
-    print("2 - PostgreSQL")
-    print("0 - Voltar")
+    print("1 - MongoDB\n2 - PostgreSQL\n0 - Voltar")
     return SGDB_OPTIONS.get(input("Escolha [1]: ").strip())
+
 
 def select_schema():
     print("\n*** Schemas PostgreSQL Disponíveis ***")
-    print("1 - vector_1024")
-    print("2 - vector_384")
-    print("3 - vector_384_teste")
-    print("0 - Voltar")
+    print("1 - vector_1024\n2 - vector_384\n3 - vector_384_teste\n0 - Voltar")
     return DB_SCHEMA_OPTIONS.get(input("Escolha [1]: ").strip())
+
 
 def select_embedding_model():
     print("\n*** Modelos de Embeddings Disponíveis ***")
     for k, label in [
-        ("1","mxbai-embed-large (Ollama)"),
-        ("2","Multilingual MiniLM-L6-v2"),
-        ("3","all-MiniLM-L6-v2"),
-        ("4","paraphrase-multilingual-MiniLM-L12-v2"),
-        ("0","Voltar")
+        ("1","mxbai-embed-large (Ollama)"),("2","Multilingual MiniLM-L6-v2"),
+        ("3","all-MiniLM-L6-v2"),("4","paraphrase-multilingual-MiniLM-L12-v2"),("0","Voltar")
     ]:
         print(f"{k} - {label}")
     return EMBEDDING_MODELS.get(input("Escolha [1]: ").strip())
 
+
 def select_dimension():
     print("\n*** Dimensão dos Embeddings ***")
-    print("1 - 1024 (padrão mxbai-embed-large)")
-    print("2 - 384  (MiniLM-L6)")
-    print("0 - Voltar")
+    print("1 - 1024 (padrão mxbai-embed-large)\n2 - 384  (MiniLM-L6)\n0 - Voltar")
     return DIMENSIONS.get(input("Escolha [1]: ").strip())
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Processamento de arquivo
 # ──────────────────────────────────────────────────────────────────────────────
-def process_file(
-    path: str,
-    strategy: str,
-    sgbd: str,
-    schema: str,
-    embedding_model: str,
-    embedding_dim: int,
-    results: dict
-):
+def process_file(path, strategy, sgbd, schema, embedding_model, embedding_dim, results):
     filename = os.path.basename(path)
     # Extração
     if not is_valid_file(path):
@@ -172,146 +139,109 @@ def process_file(
         key = "unstructured" if path.lower().endswith(".docx") else strategy
         text = STRATEGIES[key].extract(path)
     rec = build_meta(path, text)
-
     # Salvamento
     if sgbd == "mongo":
         pid = save_metadata(rec, DB_NAME, COLL_PDF, MONGO_URI)
         save_file_binary(filename, path, pid, DB_NAME, COLL_BIN, MONGO_URI)
         save_gridfs(path, filename, DB_NAME, GRIDFS_BUCKET, MONGO_URI)
     else:
-        save_to_postgres(
-            filename,
-            rec["text"],
-            rec["info"],
-            embedding_model,
-            embedding_dim,
-            schema
-        )
-
+        save_to_postgres(filename, rec["text"], rec["info"], embedding_model, embedding_dim, schema)
     results["processed"].append(path)
-
-    # Mover para 'processed'
+    # Movimentação
     try:
         archive_dir = os.path.join(os.path.dirname(path), "processed")
         os.makedirs(archive_dir, exist_ok=True)
         shutil.move(path, os.path.join(archive_dir, filename))
-    except Exception:
+    except:
         pass
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Fluxo principal
 # ──────────────────────────────────────────────────────────────────────────────
 def main():
-    current_strat   = "ocr"
-    current_sgbd    = "mongo"
-    current_schema  = "vector_1024"
-    current_model   = "mxbai-embed-large"
-    current_dim     = 1024
+    current_strat, current_sgbd = "ocr", "mongo"
+    current_schema, current_model = "vector_1024", "mxbai-embed-large"
+    current_dim = 1024
     results = {"processed": [], "errors": []}
-
     while True:
         clear_screen()
         print("*** Menu Principal ***")
         print(f"1 - Selecionar Estratégia    (atual: {current_strat})")
         print(f"2 - Selecionar SGBD          (atual: {current_sgbd})")
-        offset = 0
-        if current_sgbd == "postgres":
+        offset = 1 if current_sgbd == "postgres" else 0
+        if offset:
             print(f"3 - Selecionar Schema        (atual: {current_schema})")
-            offset = 1
         print(f"{3+offset} - Processar Arquivo")
         print(f"{4+offset} - Processar Pasta")
         print(f"{5+offset} - Selecionar Embedding     (atual: {current_model})")
         print(f"{6+offset} - Selecionar Dimensão      (atual: {current_dim})")
         print("0 - Sair")
         choice = input("> ").strip()
-
         if choice == "0":
             break
-        elif choice == "1":
+        if choice == "1":
             clear_screen()
             sel = select_strategy()
-            if sel:
-                current_strat = sel
+            if sel: current_strat = sel
         elif choice == "2":
             clear_screen()
             sel = select_sgbd()
-            if sel:
-                current_sgbd = sel
+            if sel: current_sgbd = sel
         elif choice == "3" and current_sgbd == "postgres":
             clear_screen()
             sel = select_schema()
-            if sel:
-                current_schema = sel
+            if sel: current_schema = sel
         elif choice == str(3+offset):
             clear_screen()
             p = input("Caminho do arquivo: ").strip()
-            process_file(
-                p,
-                current_strat,
-                current_sgbd,
-                current_schema,
-                current_model,
-                current_dim,
-                results
-            )
+            process_file(p, current_strat, current_sgbd, current_schema, current_model, current_dim, results)
             input("\nENTER para voltar…")
         elif choice == str(4+offset):
             clear_screen()
             folder = input("Caminho da pasta: ").strip()
             parent = os.path.dirname(folder)
-            roots = [folder]
-            if os.path.isdir(parent):
-                for entry in os.listdir(parent):
-                    path = os.path.join(parent, entry)
-                    if path != folder and os.path.isdir(path):
-                        roots.append(path)
-
-            # Coleta arquivos, pulando diretórios 'processed'
+            roots = [folder] + ([os.path.join(parent, d) for d in os.listdir(parent) if os.path.isdir(os.path.join(parent, d)) and os.path.join(parent, d) != folder] if os.path.isdir(parent) else [])
             all_files = []
             for root in roots:
-                for dirpath, dirnames, filenames in os.walk(root):
-                    if "processed" in dirnames:
-                        dirnames.remove("processed")
-                    for filename in filenames:
-                        if filename.lower().endswith((".pdf", ".docx")):
-                            all_files.append(os.path.join(dirpath, filename))
-
+                for dp, dns, fns in os.walk(root):
+                    if "processed" in dns:
+                        dns.remove("processed")
+                    for fn in fns:
+                        if fn.lower().endswith((".pdf", ".docx")):
+                            all_files.append(os.path.join(dp, fn))
             if not all_files:
                 input("Nenhum PDF/DOCX encontrado. ENTER para voltar…")
                 continue
-
             print(f"Processando {len(all_files)} arquivos em paralelo…")
             with concurrent.futures.ProcessPoolExecutor(max_workers=os.cpu_count() or 4) as executor:
-                list(tqdm(
-                    executor.map(
-                        lambda args: process_file(*args),
-                        [(path, current_strat, current_sgbd, current_schema, current_model, current_dim, results)
-                         for path in all_files]
-                    ),
-                    total=len(all_files),
-                    desc="Arquivos",
-                    unit="file"
-                ))
+                for _ in tqdm(executor.map(
+                    process_file,
+                    all_files,
+                    repeat(current_strat),
+                    repeat(current_sgbd),
+                    repeat(current_schema),
+                    repeat(current_model),
+                    repeat(current_dim),
+                    repeat(results)
+                ), total=len(all_files), desc="Arquivos", unit="file"):
+                    pass
             input("\nENTER para voltar…")
         elif choice == str(5+offset):
             clear_screen()
             sel = select_embedding_model()
-            if sel:
-                current_model = sel
+            if sel: current_model = sel
         elif choice == str(6+offset):
             clear_screen()
             sel = select_dimension()
-            if sel:
-                current_dim = sel
+            if sel: current_dim = sel
         else:
             input("Opção inválida. ENTER para tentar novamente…")
-
     clear_screen()
     print("\n=== Resumo Final ===")
     print(f"Processados: {len(results['processed'])}")
-    if results["errors"]:
+    if results['errors']:
         print(f"Erros ({len(results['errors'])}):")
-        for e in results["errors"]:
+        for e in results['errors']:
             print(f"  - {e}")
     print("\nEncerrando.")
     logging.info("Aplicação encerrada.")
