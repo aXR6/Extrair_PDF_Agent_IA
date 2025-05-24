@@ -4,17 +4,12 @@
 serve.py – Embedding HTTP Server
 
 Exponha embeddings dos modelos Sentence-Transformers via FastAPI.
-Por padrão, utiliza o modelo Serafim definido em SERAFIM_EMBEDDING_MODEL.
+Por padrão, utiliza o modelo Serafim configurado em SERAFIM_EMBEDDING_MODEL.
 
 Uso:
-  # Instale dependências:
   pip install fastapi uvicorn sentence-transformers torch
-
-  # Execute via CLI do Uvicorn:
   uvicorn serve:app --host 0.0.0.0 --port 11435
-
-  # Ou diretamente:
-  python3 serve.py
+  ou python3 serve.py
 """
 import os
 from typing import Union, List, Dict
@@ -23,15 +18,18 @@ from pydantic import BaseModel, Field
 from sentence_transformers import SentenceTransformer
 import uvicorn
 
-# Porta padrão para o servidor HTTP
+# Porta padrão
 DEFAULT_PORT = int(os.getenv("EMBEDDING_SERVER_PORT", "11435"))
 
-# Modelo Serafim como padrão
-SERAFIM_EMBEDDING_MODEL = os.getenv("SERAFIM_EMBEDDING_MODEL", "bigscience/serafim-900m")
+# Modelo Serafim (corrigido)
+SERAFIM_EMBEDDING_MODEL = os.getenv(
+    "SERAFIM_EMBEDDING_MODEL",
+    "PORTULAN/serafim-900m-portuguese-pt-sentence-encoder"
+)
 
 app = FastAPI(title="Embedding Server")
 
-# Cache simples de modelos carregados
+# Cache de instâncias
 _loaded_models: Dict[str, SentenceTransformer] = {}
 
 class EmbeddingRequest(BaseModel):
@@ -63,22 +61,12 @@ async def embed(request: EmbeddingRequest):
     try:
         embeddings = model.encode(request.input, convert_to_numpy=True)
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Erro ao gerar embedding: {e}"
-        )
-
+        raise HTTPException(status_code=500, detail=f"Erro ao gerar embedding: {e}")
     try:
         emb_list = embeddings.tolist()
-    except Exception:
+    except:
         emb_list = list(embeddings)
-
     return EmbeddingResponse(embedding=emb_list)
 
 if __name__ == "__main__":
-    uvicorn.run(
-        "serve:app",
-        host="0.0.0.0",
-        port=DEFAULT_PORT,
-        log_level="info"
-    )
+    uvicorn.run("serve:app", host="0.0.0.0", port=DEFAULT_PORT, log_level="info")

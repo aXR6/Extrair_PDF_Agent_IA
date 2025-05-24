@@ -28,7 +28,10 @@ PG_PASSWORD    = os.getenv("PG_PASSWORD")
 # Embeddings  
 # ──────────────────────────────────────────────────────────────────────────────
 OLLAMA_EMBEDDING_MODEL    = os.getenv("OLLAMA_EMBEDDING_MODEL", "mxbai-embed-large")
-SERAFIM_EMBEDDING_MODEL   = os.getenv("SERAFIM_EMBEDDING_MODEL", "bigscience/serafim-900m")
+SERAFIM_EMBEDDING_MODEL   = os.getenv(
+    "SERAFIM_EMBEDDING_MODEL",
+    "PORTULAN/serafim-900m-portuguese-pt-sentence-encoder"
+)
 MINILM_L6_V2              = os.getenv("MINILM_L6_V2", "sentence-transformers/all-MiniLM-L6-v2")
 MINILM_L12_V2             = os.getenv("MINILM_L12_V2", "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
 
@@ -69,7 +72,7 @@ SIMILARITY_THRESHOLD         = float(os.getenv("SIMILARITY_THRESHOLD", "0.8"))
 MAX_SEQ_LENGTH = int(os.getenv("MAX_SEQ_LENGTH", "128"))
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Modelo SBERT (para semantic chunking) — referência ao Serafim por default
+# Modelo SBERT (para semantic chunking)
 # ──────────────────────────────────────────────────────────────────────────────
 SBERT_MODEL_NAME = os.getenv(
     "SBERT_MODEL_NAME",
