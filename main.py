@@ -96,10 +96,8 @@ DIMENSIONS = {
 # ──────────────────────────────────────────────────────────────────────────────
 # Helpers de menu
 # ──────────────────────────────────────────────────────────────────────────────
-
 def clear_screen():
     os.system("clear")  # 'cls' no Windows
-
 
 def select_strategy():
     print("\n*** Estratégias Disponíveis ***")
@@ -117,14 +115,12 @@ def select_strategy():
         print(f"{k} - {label}")
     return STRAT_OPTIONS.get(input("Escolha [5]: ").strip())
 
-
 def select_sgbd():
     print("\n*** Seleção de SGBD ***")
     print("1 - MongoDB")
     print("2 - PostgreSQL")
     print("0 - Voltar")
     return SGDB_OPTIONS.get(input("Escolha [1]: ").strip())
-
 
 def select_schema():
     print("\n*** Schemas PostgreSQL Disponíveis ***")
@@ -133,7 +129,6 @@ def select_schema():
     print("3 - vector_384_teste")
     print("0 - Voltar")
     return DB_SCHEMA_OPTIONS.get(input("Escolha [1]: ").strip())
-
 
 def select_embedding_model():
     print("\n*** Modelos de Embeddings Disponíveis ***")
@@ -146,7 +141,6 @@ def select_embedding_model():
     ]:
         print(f"{k} - {label}")
     return EMBEDDING_MODELS.get(input("Escolha [1]: ").strip())
-
 
 def select_dimension():
     print("\n*** Dimensão dos Embeddings ***")
@@ -168,30 +162,23 @@ def process_file(
     results: dict
 ):
     filename = os.path.basename(path)
-    print(f"\n→ Processando: {filename} [estratégia={strategy}, sgbd={sgbd}]")
-
+    # Extração
     if not is_valid_file(path):
-        print("  Arquivo inválido")
         results["errors"].append(path)
         return
-
     if not is_extraction_allowed(path):
-        print("  Usando OCR fallback…")
         text = fallback_ocr(path, OCR_THRESHOLD)
     else:
         key = "unstructured" if path.lower().endswith(".docx") else strategy
-        print(f"  Extraindo com: {key}")
         text = STRATEGIES[key].extract(path)
-
     rec = build_meta(path, text)
 
+    # Salvamento
     if sgbd == "mongo":
-        print("  Salvando no MongoDB…")
         pid = save_metadata(rec, DB_NAME, COLL_PDF, MONGO_URI)
         save_file_binary(filename, path, pid, DB_NAME, COLL_BIN, MONGO_URI)
         save_gridfs(path, filename, DB_NAME, GRIDFS_BUCKET, MONGO_URI)
     else:
-        print(f"  Salvando no PostgreSQL ({schema})…")
         save_to_postgres(
             filename,
             rec["text"],
@@ -202,7 +189,14 @@ def process_file(
         )
 
     results["processed"].append(path)
-    print(f"→ {filename} concluído")
+
+    # Mover para 'processed'
+    try:
+        archive_dir = os.path.join(os.path.dirname(path), "processed")
+        os.makedirs(archive_dir, exist_ok=True)
+        shutil.move(path, os.path.join(archive_dir, filename))
+    except Exception:
+        pass
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Fluxo principal
@@ -264,7 +258,6 @@ def main():
         elif choice == str(4+offset):
             clear_screen()
             folder = input("Caminho da pasta: ").strip()
-            # Inclui a pasta raiz e suas pastas irmãs
             parent = os.path.dirname(folder)
             roots = [folder]
             if os.path.isdir(parent):
@@ -272,7 +265,8 @@ def main():
                     path = os.path.join(parent, entry)
                     if path != folder and os.path.isdir(path):
                         roots.append(path)
-            # Varre recursivamente todas as raízes, pulando 'processed'
+
+            # Coleta arquivos, pulando diretórios 'processed'
             all_files = []
             for root in roots:
                 for dirpath, dirnames, filenames in os.walk(root):
@@ -283,17 +277,21 @@ def main():
                             all_files.append(os.path.join(dirpath, filename))
 
             if not all_files:
-                print("Nenhum PDF/DOCX encontrado nas pastas especificadas.")
-                input("\nENTER para voltar…")
+                input("Nenhum PDF/DOCX encontrado. ENTER para voltar…")
                 continue
 
-            print(f"Processando {len(all_files)} arquivos em múltiplas pastas…")
-            # Multiprocessamento com ThreadPoolExecutor
-            with concurrent.futures.ThreadPoolExecutor(max_workers=os.cpu_count() or 4) as executor:
-                futures = {executor.submit(process_file, path, current_strat, current_sgbd, current_schema, current_model, current_dim, results): path
-                           for path in all_files}
-                for _ in tqdm(concurrent.futures.as_completed(futures), total=len(futures), desc="Arquivos", unit="file"):
-                    pass
+            print(f"Processando {len(all_files)} arquivos em paralelo…")
+            with concurrent.futures.ProcessPoolExecutor(max_workers=os.cpu_count() or 4) as executor:
+                list(tqdm(
+                    executor.map(
+                        lambda args: process_file(*args),
+                        [(path, current_strat, current_sgbd, current_schema, current_model, current_dim, results)
+                         for path in all_files]
+                    ),
+                    total=len(all_files),
+                    desc="Arquivos",
+                    unit="file"
+                ))
             input("\nENTER para voltar…")
         elif choice == str(5+offset):
             clear_screen()
@@ -306,8 +304,7 @@ def main():
             if sel:
                 current_dim = sel
         else:
-            print("Opção inválida.")
-            input("\nENTER para tentar novamente…")
+            input("Opção inválida. ENTER para tentar novamente…")
 
     clear_screen()
     print("\n=== Resumo Final ===")
