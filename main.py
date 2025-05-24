@@ -11,7 +11,7 @@ from config import (
     GRIDFS_BUCKET,
     OCR_THRESHOLD
 )
-from adaptive_chunker import get_sbert_model, SBERT_MODEL_NAME  # import para pré-carregamento
+from adaptive_chunker import get_sbert_model, SBERT_MODEL_NAME
 from utils import (
     setup_logging,
     is_valid_file,
@@ -31,6 +31,7 @@ from extractors import (
 )
 from storage import save_metadata, save_file_binary, save_gridfs
 from pg_storage import save_to_postgres
+import shutil
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Inicialização de logs e pré-carregamento SBERT
@@ -38,7 +39,6 @@ from pg_storage import save_to_postgres
 logging.getLogger("pdfminer").setLevel(logging.ERROR)
 logging.getLogger("PyPDF2").setLevel(logging.ERROR)
 setup_logging()
-
 # Pré-carrega o modelo SBERT uma única vez para cache
 get_sbert_model(SBERT_MODEL_NAME)
 
@@ -95,8 +95,10 @@ DIMENSIONS = {
 # ──────────────────────────────────────────────────────────────────────────────
 # Helpers de menu
 # ──────────────────────────────────────────────────────────────────────────────
+
 def clear_screen():
     os.system("clear")  # 'cls' no Windows
+
 
 def select_strategy():
     print("\n*** Estratégias Disponíveis ***")
@@ -114,12 +116,14 @@ def select_strategy():
         print(f"{k} - {label}")
     return STRAT_OPTIONS.get(input("Escolha [5]: ").strip())
 
+
 def select_sgbd():
     print("\n*** Seleção de SGBD ***")
     print("1 - MongoDB")
     print("2 - PostgreSQL")
     print("0 - Voltar")
     return SGDB_OPTIONS.get(input("Escolha [1]: ").strip())
+
 
 def select_schema():
     print("\n*** Schemas PostgreSQL Disponíveis ***")
@@ -128,6 +132,7 @@ def select_schema():
     print("3 - vector_384_teste")
     print("0 - Voltar")
     return DB_SCHEMA_OPTIONS.get(input("Escolha [1]: ").strip())
+
 
 def select_embedding_model():
     print("\n*** Modelos de Embeddings Disponíveis ***")
@@ -140,6 +145,7 @@ def select_embedding_model():
     ]:
         print(f"{k} - {label}")
     return EMBEDDING_MODELS.get(input("Escolha [1]: ").strip())
+
 
 def select_dimension():
     print("\n*** Dimensão dos Embeddings ***")
@@ -244,7 +250,15 @@ def main():
         elif choice == str(3+offset):
             clear_screen()
             p = input("Caminho do arquivo: ").strip()
-            process_file(p, current_strat, current_sgbd, current_schema, current_model, current_dim, results)
+            process_file(
+                p,
+                current_strat,
+                current_sgbd,
+                current_schema,
+                current_model,
+                current_dim,
+                results
+            )
             input("\nENTER para voltar…")
         elif choice == str(4+offset):
             clear_screen()
@@ -257,13 +271,15 @@ def main():
                     path = os.path.join(parent, entry)
                     if path != folder and os.path.isdir(path):
                         roots.append(path)
-            # Varre recursivamente todas as raízes
+            # Varre recursivamente todas as raízes, pulando 'processed'
             all_files = []
             for root in roots:
-                for r, _, filenames in os.walk(root):
+                for dirpath, dirnames, filenames in os.walk(root):
+                    if "processed" in dirnames:
+                        dirnames.remove("processed")
                     for filename in filenames:
                         if filename.lower().endswith((".pdf", ".docx")):
-                            all_files.append(os.path.join(r, filename))
+                            all_files.append(os.path.join(dirpath, filename))
 
             if not all_files:
                 print("Nenhum PDF/DOCX encontrado nas pastas especificadas.")
