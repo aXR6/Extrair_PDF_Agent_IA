@@ -69,11 +69,11 @@ SIMILARITY_THRESHOLD         = float(os.getenv("SIMILARITY_THRESHOLD", "0.8"))
 MAX_SEQ_LENGTH = int(os.getenv("MAX_SEQ_LENGTH", "128"))
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Modelo SBERT (para semantic chunking) — remove referências ao antigo jvanhoof
+# Modelo SBERT (para semantic chunking) — referência ao Serafim por default
 # ──────────────────────────────────────────────────────────────────────────────
 SBERT_MODEL_NAME = os.getenv(
     "SBERT_MODEL_NAME",
-    "sentence-transformers/paraphrase-MiniLM-L6-v2"
+    MINILM_L6_V2
 )
 
 # ──────────────────────────────────────────────────────────────────────────────

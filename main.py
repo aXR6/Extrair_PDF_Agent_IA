@@ -1,3 +1,4 @@
+# main.py (CLI de processamento)
 #!/usr/bin/env python3
 import os
 import logging
@@ -214,7 +215,7 @@ def main():
             if not all_files:
                 input("Nenhum PDF/DOCX encontrado. ENTER…"); continue
 
-            print(f"Processando {len(all_files)} arquivos em paralelo…")
+            print(f"Processando {len(all_files)} arquivos…")
             for path in tqdm(all_files, desc="Arquivos", unit="file"):
                 process_file(path, current_strat, current_sgbd,
                              current_schema, current_model, current_dim, results)

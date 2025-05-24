@@ -1,6 +1,7 @@
+# serve.py (Embedding HTTP Server)
 #!/usr/bin/env python3
 """
-server.py – Embedding HTTP Server
+serve.py – Embedding HTTP Server
 
 Exponha embeddings dos modelos Sentence-Transformers via FastAPI.
 Por padrão, utiliza o modelo Serafim definido em SERAFIM_EMBEDDING_MODEL.
@@ -10,10 +11,10 @@ Uso:
   pip install fastapi uvicorn sentence-transformers torch
 
   # Execute via CLI do Uvicorn:
-  uvicorn server:app --host 0.0.0.0 --port 11435
+  uvicorn serve:app --host 0.0.0.0 --port 11435
 
   # Ou diretamente:
-  python3 server.py
+  python3 serve.py
 """
 import os
 from typing import Union, List, Dict
@@ -22,18 +23,15 @@ from pydantic import BaseModel, Field
 from sentence_transformers import SentenceTransformer
 import uvicorn
 
-# Porta padrão para o servidor HTTP (pode ser configurada por variável de ambiente)
+# Porta padrão para o servidor HTTP
 DEFAULT_PORT = int(os.getenv("EMBEDDING_SERVER_PORT", "11435"))
 
 # Modelo Serafim como padrão
-SERAFIM_EMBEDDING_MODEL = os.getenv(
-    "SERAFIM_EMBEDDING_MODEL",
-    "bigscience/serafim-900m"
-)
+SERAFIM_EMBEDDING_MODEL = os.getenv("SERAFIM_EMBEDDING_MODEL", "bigscience/serafim-900m")
 
 app = FastAPI(title="Embedding Server")
 
-# Cache simples de modelos carregados: model_name -> SentenceTransformer
+# Cache simples de modelos carregados
 _loaded_models: Dict[str, SentenceTransformer] = {}
 
 class EmbeddingRequest(BaseModel):
@@ -42,18 +40,13 @@ class EmbeddingRequest(BaseModel):
         description="Nome do modelo SentenceTransformer (padrão: Serafim)"
     )
     input: Union[str, List[str]] = Field(
-        ...,
-        description="Texto único ou lista de textos para embedar"
+        ..., description="Texto único ou lista de textos para embedar"
     )
 
 class EmbeddingResponse(BaseModel):
     embedding: Union[List[float], List[List[float]]]
 
 def get_model(model_name: str) -> SentenceTransformer:
-    """
-    Carrega e cacheia uma instância de SentenceTransformer.
-    Lança HTTPException(400) se falhar.
-    """
     if model_name not in _loaded_models:
         try:
             _loaded_models[model_name] = SentenceTransformer(model_name)
@@ -66,11 +59,6 @@ def get_model(model_name: str) -> SentenceTransformer:
 
 @app.post("/api/embeddings", response_model=EmbeddingResponse)
 async def embed(request: EmbeddingRequest):
-    """
-    Gera embedding(s) para o(s) texto(s) de entrada.
-    - Se `input` for string, retorna lista de floats.
-    - Se for lista de strings, retorna lista de listas.
-    """
     model = get_model(request.model)
     try:
         embeddings = model.encode(request.input, convert_to_numpy=True)
@@ -80,7 +68,6 @@ async def embed(request: EmbeddingRequest):
             detail=f"Erro ao gerar embedding: {e}"
         )
 
-    # Converter numpy.ndarray para listas Python
     try:
         emb_list = embeddings.tolist()
     except Exception:
@@ -90,7 +77,7 @@ async def embed(request: EmbeddingRequest):
 
 if __name__ == "__main__":
     uvicorn.run(
-        "server:app",
+        "serve:app",
         host="0.0.0.0",
         port=DEFAULT_PORT,
         log_level="info"
