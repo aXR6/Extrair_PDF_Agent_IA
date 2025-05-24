@@ -23,57 +23,34 @@ PG_PORT        = os.getenv("PG_PORT")
 PG_DB          = os.getenv("PG_DB")
 PG_USER        = os.getenv("PG_USER")
 PG_PASSWORD    = os.getenv("PG_PASSWORD")
-PG_SCHEMA      = os.getenv("PG_SCHEMA", "public")
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Embeddings Ollama (API)
+# Embeddings  
 # ──────────────────────────────────────────────────────────────────────────────
-OLLAMA_EMBEDDING_MODEL = os.getenv("OLLAMA_EMBEDDING_MODEL", "mxbai-embed-large")
-OLLAMA_API_URL         = os.getenv("OLLAMA_API_URL", "http://localhost:11434/api/embeddings")
+OLLAMA_EMBEDDING_MODEL    = os.getenv("OLLAMA_EMBEDDING_MODEL", "mxbai-embed-large")
+SERAFIM_EMBEDDING_MODEL   = os.getenv("SERAFIM_EMBEDDING_MODEL", "bigscience/serafim-900m")
+MINILM_L6_V2              = os.getenv("MINILM_L6_V2", "sentence-transformers/all-MiniLM-L6-v2")
+MINILM_L12_V2             = os.getenv("MINILM_L12_V2", "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Embeddings Serafim
+# Embeddings dimensions
 # ──────────────────────────────────────────────────────────────────────────────
-SERAFIM_EMBEDDING_MODEL = os.getenv("SERAFIM_EMBEDDING_MODEL", "serafim-900m")
-SERAFIM_DIM             = int(os.getenv("SERAFIM_DIM", "1536"))
+DIM_MXBAI      = int(os.getenv("DIM_MXBAI", "1024"))
+DIM_SERAFIM    = int(os.getenv("DIM_SERAFIM", "1536"))
+DIM_MINILM_L6  = int(os.getenv("DIM_MINILM_L6", "384"))
+DIM_MINIL12    = int(os.getenv("DIM_MINIL12", "384"))
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Modelo SBERT (para semantic chunking)
+# Parâmetros de extração OCR
 # ──────────────────────────────────────────────────────────────────────────────
-SBERT_MODEL_NAME = os.getenv(
-    "SBERT_MODEL_NAME",
-    "jvanhoof/all-MiniLM-L6-multilingual-v2-en-es-pt-pt-br-v2"
-)
+OCR_THRESHOLD = int(os.getenv("OCR_THRESHOLD", "100"))
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Parâmetros gerais
+# Parâmetros de chunking
 # ──────────────────────────────────────────────────────────────────────────────
-OCR_THRESHOLD               = int(os.getenv("OCR_THRESHOLD", "100"))
-EMBEDDING_DIM               = int(os.getenv("EMBEDDING_DIM", "1024"))
-CHUNK_SIZE_ENV              = os.getenv("CHUNK_SIZE")
-CHUNK_OVERLAP_ENV           = os.getenv("CHUNK_OVERLAP")
-SLIDING_WINDOW_OVERLAP_RATIO = float(os.getenv("SLIDING_WINDOW_OVERLAP_RATIO", "0.25"))
-SIMILARITY_THRESHOLD         = float(os.getenv("SIMILARITY_THRESHOLD", "0.8"))
-MAX_SEQ_LENGTH               = int(os.getenv("MAX_SEQ_LENGTH", "128"))
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Chunk Size e Overlap
-# ──────────────────────────────────────────────────────────────────────────────
-if CHUNK_SIZE_ENV:
-    CHUNK_SIZE = int(CHUNK_SIZE_ENV)
-else:
-    CHUNK_SIZE = 512
-
-if CHUNK_OVERLAP_ENV:
-    CHUNK_OVERLAP = int(CHUNK_OVERLAP_ENV)
-else:
-    CHUNK_OVERLAP = CHUNK_SIZE // 2
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Separadores customizáveis
-# ──────────────────────────────────────────────────────────────────────────────
-_sep_env   = os.getenv("SEPARATORS")
-SEPARATORS = _sep_env.split("|") if _sep_env else ["\n\n", "\n", ".", "!", "?", ";"]
+CHUNK_SIZE     = int(os.getenv("CHUNK_SIZE", "512"))
+CHUNK_OVERLAP  = int(os.getenv("CHUNK_OVERLAP", str(CHUNK_SIZE // 2)))
+SEPARATORS     = os.getenv("SEPARATORS", "\n\n|\n|.|!|?|;").split("|")
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Idiomas para OCR fallback
@@ -81,7 +58,26 @@ SEPARATORS = _sep_env.split("|") if _sep_env else ["\n\n", "\n", ".", "!", "?", 
 OCR_LANGUAGES = os.getenv("OCR_LANGUAGES", "eng+por")
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Validação básica
+# Sliding-window e semantic chunking
+# ──────────────────────────────────────────────────────────────────────────────
+SLIDING_WINDOW_OVERLAP_RATIO = float(os.getenv("SLIDING_WINDOW_OVERLAP_RATIO", "0.25"))
+SIMILARITY_THRESHOLD         = float(os.getenv("SIMILARITY_THRESHOLD", "0.8"))
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Limite de tokens para modelos SBERT
+# ──────────────────────────────────────────────────────────────────────────────
+MAX_SEQ_LENGTH = int(os.getenv("MAX_SEQ_LENGTH", "128"))
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Modelo SBERT (para semantic chunking) — remove referências ao antigo jvanhoof
+# ──────────────────────────────────────────────────────────────────────────────
+SBERT_MODEL_NAME = os.getenv(
+    "SBERT_MODEL_NAME",
+    "sentence-transformers/paraphrase-MiniLM-L6-v2"
+)
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Validação básica de variáveis críticas
 # ──────────────────────────────────────────────────────────────────────────────
 def validate_config():
     missing = [k for k in ("MONGO_URI", "PG_HOST") if not globals().get(k)]
