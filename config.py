@@ -1,4 +1,5 @@
 # config.py
+
 import os
 import logging
 from dotenv import load_dotenv
@@ -32,6 +33,7 @@ SERAFIM_EMBEDDING_MODEL   = os.getenv(
     "SERAFIM_EMBEDDING_MODEL",
     "PORTULAN/serafim-900m-portuguese-pt-sentence-encoder"
 )
+MPNET_EMBEDDING_MODEL     = os.getenv("MPNET_EMBEDDING_MODEL", "sentence-transformers/all-mpnet-base-v2")
 MINILM_L6_V2              = os.getenv("MINILM_L6_V2", "sentence-transformers/all-MiniLM-L6-v2")
 MINILM_L12_V2             = os.getenv("MINILM_L12_V2", "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
 
@@ -40,6 +42,7 @@ MINILM_L12_V2             = os.getenv("MINILM_L12_V2", "sentence-transformers/pa
 # ──────────────────────────────────────────────────────────────────────────────
 DIM_MXBAI      = int(os.getenv("DIM_MXBAI", "1024"))
 DIM_SERAFIM    = int(os.getenv("DIM_SERAFIM", "1536"))
+DIM_MPNET      = int(os.getenv("DIM_MPNET", "768"))
 DIM_MINILM_L6  = int(os.getenv("DIM_MINILM_L6", "384"))
 DIM_MINIL12    = int(os.getenv("DIM_MINIL12", "384"))
 

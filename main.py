@@ -1,4 +1,5 @@
 # main.py (CLI de processamento)
+
 #!/usr/bin/env python3
 import os
 import logging
@@ -7,9 +8,9 @@ import shutil
 
 from config import (
     MONGO_URI, DB_NAME, COLL_PDF, COLL_BIN, GRIDFS_BUCKET, OCR_THRESHOLD,
-    OLLAMA_EMBEDDING_MODEL, SERAFIM_EMBEDDING_MODEL,
+    OLLAMA_EMBEDDING_MODEL, SERAFIM_EMBEDDING_MODEL, MPNET_EMBEDDING_MODEL,
     MINILM_L6_V2, MINILM_L12_V2,
-    DIM_MXBAI, DIM_SERAFIM, DIM_MINILM_L6, DIM_MINIL12
+    DIM_MXBAI, DIM_SERAFIM, DIM_MPNET, DIM_MINILM_L6, DIM_MINIL12
 )
 from adaptive_chunker import get_sbert_model, SBERT_MODEL_NAME
 from utils import setup_logging, is_valid_file, build_record as build_meta
@@ -43,9 +44,11 @@ STRATEGIES = {
     "tika":         TikaStrategy(),
     "pymupdf4llm":  PyMuPDF4LLMStrategy(),
 }
-STRAT_OPTIONS = {"1": "pypdf", "2": "pdfminer", "3": "pdfminer-low",
-                 "4": "unstructured", "5": "ocr", "6": "plumber",
-                 "7": "tika", "8": "pymupdf4llm", "0": None}
+STRAT_OPTIONS = {
+    "1": "pypdf", "2": "pdfminer", "3": "pdfminer-low",
+    "4": "unstructured", "5": "ocr", "6": "plumber",
+    "7": "tika", "8": "pymupdf4llm", "0": None
+}
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Modelos e dimensões de embeddings
@@ -53,15 +56,17 @@ STRAT_OPTIONS = {"1": "pypdf", "2": "pdfminer", "3": "pdfminer-low",
 EMBEDDING_MODELS = {
     "1": OLLAMA_EMBEDDING_MODEL,
     "2": SERAFIM_EMBEDDING_MODEL,
-    "3": MINILM_L6_V2,
-    "4": MINILM_L12_V2,
+    "3": MPNET_EMBEDDING_MODEL,
+    "4": MINILM_L6_V2,
+    "5": MINILM_L12_V2,
     "0": None
 }
 DIMENSIONS = {
     "1": DIM_MXBAI,
     "2": DIM_SERAFIM,
-    "3": DIM_MINILM_L6,
-    "4": DIM_MINIL12,
+    "3": DIM_MPNET,
+    "4": DIM_MINILM_L6,
+    "5": DIM_MINIL12,
     "0": None
 }
 
@@ -85,11 +90,18 @@ def clear_screen():
 
 def select_strategy():
     print("\n*** Estratégias Disponíveis ***")
-    for k, label in [
-        ("1","PyPDFLoader"),("2","PDFMinerLoader"),("3","PDFMiner Low-Level"),
-        ("4","Unstructured (.docx)"),("5","OCR"),("6","PDFPlumber"),
-        ("7","Apache Tika"),("8","PyMuPDF4LLM"),("0","Voltar")
-    ]:
+    options = [
+        ("1","PyPDFLoader"),
+        ("2","PDFMinerLoader"),
+        ("3","PDFMiner Low-Level"),
+        ("4","Unstructured (.docx)"),
+        ("5","OCR"),
+        ("6","PDFPlumber"),
+        ("7","Apache Tika"),
+        ("8","PyMuPDF4LLM"),
+        ("0","Voltar")
+    ]
+    for k, label in options:
         print(f"{k} - {label}")
     return STRAT_OPTIONS.get(input("Escolha [5]: ").strip())
 
@@ -105,25 +117,27 @@ def select_schema():
 
 def select_embedding_model():
     print("\n*** Modelos de Embedding Disponíveis ***")
-    for k, name in [
-        ("1", OLLAMA_EMBEDDING_MODEL),
-        ("2", SERAFIM_EMBEDDING_MODEL),
-        ("3", MINILM_L6_V2),
-        ("4", MINILM_L12_V2),
+    menu = [
+        ("1", f"{SERAFIM_EMBEDDING_MODEL} (PT-BR)"),
+        ("2", f"{MPNET_EMBEDDING_MODEL} (EN)"),
+        ("3", f"{MINILM_L6_V2}"),
+        ("4", f"{MINILM_L12_V2}"),
         ("0", "Voltar")
-    ]:
+    ]
+    for k, name in menu:
         print(f"{k} - {name}")
     return EMBEDDING_MODELS.get(input("Escolha [1]: ").strip())
 
 def select_dimension():
     print("\n*** Dimensão dos Embeddings ***")
-    for k, d in [
-        ("1", DIM_MXBAI),
-        ("2", DIM_SERAFIM),
+    menu = [
+        ("1", DIM_SERAFIM),
+        ("2", DIM_MPNET),
         ("3", DIM_MINILM_L6),
         ("4", DIM_MINIL12),
         ("0", "Voltar")
-    ]:
+    ]
+    for k, d in menu:
         print(f"{k} - {d}")
     return DIMENSIONS.get(input("Escolha [1]: ").strip())
 
@@ -133,7 +147,8 @@ def select_dimension():
 def process_file(path, strategy, sgbd, schema, embedding_model, embedding_dim, results):
     filename = os.path.basename(path)
     if not is_valid_file(path):
-        results["errors"].append(path); return
+        results["errors"].append(path)
+        return
     if not is_extraction_allowed(path):
         text = fallback_ocr(path, OCR_THRESHOLD)
     else:
@@ -163,8 +178,8 @@ def main():
     current_strat   = "ocr"
     current_sgbd    = "mongo"
     current_schema  = "vector_1024"
-    current_model   = OLLAMA_EMBEDDING_MODEL
-    current_dim     = DIM_MXBAI
+    current_model   = SERAFIM_EMBEDDING_MODEL
+    current_dim     = DIM_SERAFIM
     results = {"processed": [], "errors": []}
 
     while True:
@@ -186,13 +201,16 @@ def main():
             break
         elif choice == "1":
             sel = select_strategy()
-            if sel: current_strat = sel
+            if sel:
+                current_strat = sel
         elif choice == "2":
             sel = select_sgbd()
-            if sel: current_sgbd = sel
+            if sel:
+                current_sgbd = sel
         elif choice == "3" and current_sgbd == "postgres":
             sel = select_schema()
-            if sel: current_schema = sel
+            if sel:
+                current_schema = sel
         elif choice == str(3+offset):
             p = input("Caminho do arquivo: ").strip()
             process_file(p, current_strat, current_sgbd,
@@ -208,12 +226,14 @@ def main():
                                if os.path.isdir(parent) else [])
             for root in roots:
                 for dp, dns, fns in os.walk(root):
-                    if "processed" in dns: dns.remove("processed")
+                    if "processed" in dns:
+                        dns.remove("processed")
                     for fn in fns:
-                        if fn.lower().endswith((".pdf",".docx")):
+                        if fn.lower().endswith((".pdf", ".docx")):
                             all_files.append(os.path.join(dp,fn))
             if not all_files:
-                input("Nenhum PDF/DOCX encontrado. ENTER…"); continue
+                input("Nenhum PDF/DOCX encontrado. ENTER…")
+                continue
 
             print(f"Processando {len(all_files)} arquivos…")
             for path in tqdm(all_files, desc="Arquivos", unit="file"):
@@ -222,10 +242,12 @@ def main():
             input("\nENTER para voltar…")
         elif choice == str(5+offset):
             sel = select_embedding_model()
-            if sel: current_model = sel
+            if sel:
+                current_model = sel
         elif choice == str(6+offset):
             sel = select_dimension()
-            if sel: current_dim = sel
+            if sel:
+                current_dim = sel
         else:
             input("Opção inválida. ENTER para tentar novamente…")
 
