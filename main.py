@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import os
 import logging
+import shutil
 from tqdm import tqdm
 
 from config import (
@@ -9,7 +10,9 @@ from config import (
     COLL_PDF,
     COLL_BIN,
     GRIDFS_BUCKET,
-    OCR_THRESHOLD
+    OCR_THRESHOLD,
+    OLLAMA_EMBEDDING_MODEL,
+    SERAFIM_EMBEDDING_MODEL
 )
 from adaptive_chunker import get_sbert_model, SBERT_MODEL_NAME
 from utils import (
@@ -31,7 +34,6 @@ from extractors import (
 )
 from storage import save_metadata, save_file_binary, save_gridfs
 from pg_storage import save_to_postgres
-import shutil
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Inicialização de logs e pré-carregamento SBERT
@@ -64,75 +66,54 @@ STRAT_OPTIONS = {
 # ──────────────────────────────────────────────────────────────────────────────
 # Seleção de SGBD e Schemas PostgreSQL
 # ──────────────────────────────────────────────────────────────────────────────
-SGDB_OPTIONS = {
-    "1": "mongo",
-    "2": "postgres",
-    "0": None
-}
-DB_SCHEMA_OPTIONS = {
-    "1": "vector_1024",
-    "2": "vector_384",
-    "3": "vector_384_teste",
-    "0": None
-}
+SGDB_OPTIONS = {"1": "mongo", "2": "postgres", "0": None}
+DB_SCHEMA_OPTIONS = {"1": "vector_1024", "2": "vector_384", "3": "vector_384_teste", "0": None}
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Modelos e dimensões de embeddings
+# Modelos e dimensões de embeddings (inclui Serafim)
 # ──────────────────────────────────────────────────────────────────────────────
 EMBEDDING_MODELS = {
-    "1": "mxbai-embed-large",
+    "1": OLLAMA_EMBEDDING_MODEL,
     "2": "jvanhoof/all-MiniLM-L6-multilingual-v2-en-es-pt-pt-br-v2",
     "3": "sentence-transformers/all-MiniLM-L6-v2",
     "4": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+    "5": SERAFIM_EMBEDDING_MODEL,
     "0": None
 }
 DIMENSIONS = {
     "1": 1024,
     "2": 384,
+    "3": 384,
+    "4": 384,
+    "5": 1536,
     "0": None
 }
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Helpers de menu
 # ──────────────────────────────────────────────────────────────────────────────
-
 def clear_screen():
     os.system("clear")  # 'cls' no Windows
-
 
 def select_strategy():
     print("\n*** Estratégias Disponíveis ***")
     for k, label in [
-        ("1","PyPDFLoader"),
-        ("2","PDFMinerLoader"),
-        ("3","PDFMiner Low-Level"),
-        ("4","Unstructured (.docx)"),
-        ("5","OCR"),
-        ("6","PDFPlumber"),
-        ("7","Apache Tika"),
-        ("8","PyMuPDF4LLM"),
-        ("0","Voltar")
+        ("1","PyPDFLoader"), ("2","PDFMinerLoader"), ("3","PDFMiner Low-Level"),
+        ("4","Unstructured (.docx)"), ("5","OCR"), ("6","PDFPlumber"),
+        ("7","Apache Tika"), ("8","PyMuPDF4LLM"), ("0","Voltar")
     ]:
         print(f"{k} - {label}")
     return STRAT_OPTIONS.get(input("Escolha [5]: ").strip())
 
-
 def select_sgbd():
     print("\n*** Seleção de SGBD ***")
-    print("1 - MongoDB")
-    print("2 - PostgreSQL")
-    print("0 - Voltar")
+    print("1 - MongoDB\n2 - PostgreSQL\n0 - Voltar")
     return SGDB_OPTIONS.get(input("Escolha [1]: ").strip())
-
 
 def select_schema():
     print("\n*** Schemas PostgreSQL Disponíveis ***")
-    print("1 - vector_1024")
-    print("2 - vector_384")
-    print("3 - vector_384_teste")
-    print("0 - Voltar")
+    print("1 - vector_1024\n2 - vector_384\n3 - vector_384_teste\n0 - Voltar")
     return DB_SCHEMA_OPTIONS.get(input("Escolha [1]: ").strip())
-
 
 def select_embedding_model():
     print("\n*** Modelos de Embeddings Disponíveis ***")
@@ -141,17 +122,15 @@ def select_embedding_model():
         ("2","Multilingual MiniLM-L6-v2"),
         ("3","all-MiniLM-L6-v2"),
         ("4","paraphrase-multilingual-MiniLM-L12-v2"),
+        ("5","Serafim 900m"),
         ("0","Voltar")
     ]:
         print(f"{k} - {label}")
     return EMBEDDING_MODELS.get(input("Escolha [1]: ").strip())
 
-
 def select_dimension():
     print("\n*** Dimensão dos Embeddings ***")
-    print("1 - 1024 (padrão mxbai-embed-large)")
-    print("2 - 384  (MiniLM-L6)")
-    print("0 - Voltar")
+    print("1 - 1024 (Ollama)\n2 - 384 (MiniLM)\n3 - 384 (MiniLM)\n4 - 384 (Paraphrase)\n5 - 1536 (Serafim)\n0 - Voltar")
     return DIMENSIONS.get(input("Escolha [1]: ").strip())
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -210,8 +189,8 @@ def main():
     current_strat   = "ocr"
     current_sgbd    = "mongo"
     current_schema  = "vector_1024"
-    current_model   = "mxbai-embed-large"
-    current_dim     = 1024
+    current_model   = OLLAMA_EMBEDDING_MODEL
+    current_dim     = DIMENSIONS["1"]
     results = {"processed": [], "errors": []}
 
     while True:
@@ -235,43 +214,31 @@ def main():
         elif choice == "1":
             clear_screen()
             sel = select_strategy()
-            if sel:
-                current_strat = sel
+            if sel: current_strat = sel
         elif choice == "2":
             clear_screen()
             sel = select_sgbd()
-            if sel:
-                current_sgbd = sel
+            if sel: current_sgbd = sel
         elif choice == "3" and current_sgbd == "postgres":
             clear_screen()
             sel = select_schema()
-            if sel:
-                current_schema = sel
+            if sel: current_schema = sel
         elif choice == str(3+offset):
             clear_screen()
             p = input("Caminho do arquivo: ").strip()
-            process_file(
-                p,
-                current_strat,
-                current_sgbd,
-                current_schema,
-                current_model,
-                current_dim,
-                results
-            )
+            process_file(p, current_strat, current_sgbd, current_schema, current_model, current_dim, results)
             input("\nENTER para voltar…")
         elif choice == str(4+offset):
             clear_screen()
             folder = input("Caminho da pasta: ").strip()
-            # Inclui a pasta raiz e suas pastas irmãs
             parent = os.path.dirname(folder)
             roots = [folder]
             if os.path.isdir(parent):
                 for entry in os.listdir(parent):
-                    path = os.path.join(parent, entry)
-                    if path != folder and os.path.isdir(path):
-                        roots.append(path)
-            # Varre recursivamente todas as raízes, pulando 'processed'
+                    path2 = os.path.join(parent, entry)
+                    if path2 != folder and os.path.isdir(path2):
+                        roots.append(path2)
+
             all_files = []
             for root in roots:
                 for dirpath, dirnames, filenames in os.walk(root):
@@ -288,15 +255,7 @@ def main():
 
             print(f"Processando {len(all_files)} arquivos em múltiplas pastas…")
             for path in tqdm(all_files, desc="Arquivos", unit="file"):
-                process_file(
-                    path,
-                    current_strat,
-                    current_sgbd,
-                    current_schema,
-                    current_model,
-                    current_dim,
-                    results
-                )
+                process_file(path, current_strat, current_sgbd, current_schema, current_model, current_dim, results)
             input("\nENTER para voltar…")
         elif choice == str(5+offset):
             clear_screen()

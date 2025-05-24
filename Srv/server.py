@@ -2,8 +2,8 @@
 """
 server.py – Embedding HTTP Server
 
-Exponha embeddings do modelos Sentence-Transformers via FastAPI.
-Suporte multilíngue com: jvanhoof/all-MiniLM-L6-multilingual-v2-en-es-pt-pt-br-v2
+Exponha embeddings dos modelos Sentence-Transformers via FastAPI.
+Por padrão, utiliza o modelo Serafim definido em SERAFIM_EMBEDDING_MODEL.
 
 Uso:
   # Instale dependências:
@@ -25,20 +25,29 @@ import uvicorn
 # Porta padrão para o servidor HTTP (pode ser configurada por variável de ambiente)
 DEFAULT_PORT = int(os.getenv("EMBEDDING_SERVER_PORT", "11435"))
 
+# Modelo Serafim como padrão
+SERAFIM_EMBEDDING_MODEL = os.getenv(
+    "SERAFIM_EMBEDDING_MODEL",
+    "bigscience/serafim-900m"
+)
+
 app = FastAPI(title="Embedding Server")
 
 # Cache simples de modelos carregados: model_name -> SentenceTransformer
 _loaded_models: Dict[str, SentenceTransformer] = {}
 
 class EmbeddingRequest(BaseModel):
-    model: str = Field(..., description="Nome do modelo SentenceTransformer")
+    model: str = Field(
+        default=SERAFIM_EMBEDDING_MODEL,
+        description="Nome do modelo SentenceTransformer (padrão: Serafim)"
+    )
     input: Union[str, List[str]] = Field(
-        ..., description="Texto único ou lista de textos para embedar"
+        ...,
+        description="Texto único ou lista de textos para embedar"
     )
 
 class EmbeddingResponse(BaseModel):
     embedding: Union[List[float], List[List[float]]]
-
 
 def get_model(model_name: str) -> SentenceTransformer:
     """

@@ -1,4 +1,4 @@
-#config.py
+# config.py
 import os
 import logging
 from dotenv import load_dotenv
@@ -20,14 +20,22 @@ GRIDFS_BUCKET  = os.getenv("GRIDFS_BUCKET", "fs")
 # ──────────────────────────────────────────────────────────────────────────────
 PG_HOST        = os.getenv("PG_HOST")
 PG_PORT        = os.getenv("PG_PORT")
-PG_DB          = os.getenv("PG_DB")        # valor padrão (não usado para seleção dinâmica)
+PG_DB          = os.getenv("PG_DB")
 PG_USER        = os.getenv("PG_USER")
 PG_PASSWORD    = os.getenv("PG_PASSWORD")
+PG_SCHEMA      = os.getenv("PG_SCHEMA", "public")
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Embeddings Ollama (API)
 # ──────────────────────────────────────────────────────────────────────────────
-OLLAMA_API_URL = os.getenv("OLLAMA_API_URL", "http://localhost:11434/api/embeddings")
+OLLAMA_EMBEDDING_MODEL = os.getenv("OLLAMA_EMBEDDING_MODEL", "mxbai-embed-large")
+OLLAMA_API_URL         = os.getenv("OLLAMA_API_URL", "http://localhost:11434/api/embeddings")
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Embeddings Serafim
+# ──────────────────────────────────────────────────────────────────────────────
+SERAFIM_EMBEDDING_MODEL = os.getenv("SERAFIM_EMBEDDING_MODEL", "serafim-900m")
+SERAFIM_DIM             = int(os.getenv("SERAFIM_DIM", "1536"))
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Modelo SBERT (para semantic chunking)
@@ -38,21 +46,24 @@ SBERT_MODEL_NAME = os.getenv(
 )
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Parâmetros de extração OCR
+# Parâmetros gerais
 # ──────────────────────────────────────────────────────────────────────────────
-OCR_THRESHOLD = int(os.getenv("OCR_THRESHOLD", "100"))
+OCR_THRESHOLD               = int(os.getenv("OCR_THRESHOLD", "100"))
+EMBEDDING_DIM               = int(os.getenv("EMBEDDING_DIM", "1024"))
+CHUNK_SIZE_ENV              = os.getenv("CHUNK_SIZE")
+CHUNK_OVERLAP_ENV           = os.getenv("CHUNK_OVERLAP")
+SLIDING_WINDOW_OVERLAP_RATIO = float(os.getenv("SLIDING_WINDOW_OVERLAP_RATIO", "0.25"))
+SIMILARITY_THRESHOLD         = float(os.getenv("SIMILARITY_THRESHOLD", "0.8"))
+MAX_SEQ_LENGTH               = int(os.getenv("MAX_SEQ_LENGTH", "128"))
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Parâmetros de chunking
+# Chunk Size e Overlap
 # ──────────────────────────────────────────────────────────────────────────────
-# tamanho de chunk (padrão 512, pode ser sobrescrito via env CHUNK_SIZE)
-CHUNK_SIZE_ENV = os.getenv("CHUNK_SIZE")
 if CHUNK_SIZE_ENV:
     CHUNK_SIZE = int(CHUNK_SIZE_ENV)
 else:
     CHUNK_SIZE = 512
-# overlap de 50% do chunk por padrão, ou define via env CHUNK_OVERLAP
-CHUNK_OVERLAP_ENV = os.getenv("CHUNK_OVERLAP")
+
 if CHUNK_OVERLAP_ENV:
     CHUNK_OVERLAP = int(CHUNK_OVERLAP_ENV)
 else:
@@ -70,18 +81,7 @@ SEPARATORS = _sep_env.split("|") if _sep_env else ["\n\n", "\n", ".", "!", "?", 
 OCR_LANGUAGES = os.getenv("OCR_LANGUAGES", "eng+por")
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Sliding-window e semantic chunking
-# ──────────────────────────────────────────────────────────────────────────────
-SLIDING_WINDOW_OVERLAP_RATIO = float(os.getenv("SLIDING_WINDOW_OVERLAP_RATIO", "0.25"))
-SIMILARITY_THRESHOLD         = float(os.getenv("SIMILARITY_THRESHOLD", "0.8"))
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Limite de tokens para modelos SBERT
-# ──────────────────────────────────────────────────────────────────────────────
-MAX_SEQ_LENGTH = int(os.getenv("MAX_SEQ_LENGTH", "128"))
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Validação básica de variáveis críticas
+# Validação básica
 # ──────────────────────────────────────────────────────────────────────────────
 def validate_config():
     missing = [k for k in ("MONGO_URI", "PG_HOST") if not globals().get(k)]
