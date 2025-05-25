@@ -11,10 +11,6 @@ from metrics import record_metrics  # Decorator de métricas
 # Ajuste para evitar fragmentação de GPU
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
-# -------------------------------
-# Função antiga: generate_embedding
-# (mantida aqui, sem modificações)
-# -------------------------------
 def generate_embedding(
     text: str,
     model_name: str,
@@ -60,7 +56,6 @@ def generate_embedding(
 
     return emb
 
-# ---------------------------------------
 def rerank_with_cross_encoder(results: list, query: str, top_k: int = None) -> list:
     """
     Re-rank os documentos usando um modelo cross-encoder para maior precisão.
@@ -73,7 +68,6 @@ def rerank_with_cross_encoder(results: list, query: str, top_k: int = None) -> l
     ranked = sorted(results, key=lambda x: x['rerank_score'], reverse=True)
     return ranked[:top_k] if top_k else ranked
 
-# ----------------------------------------------------------------
 @record_metrics
 def save_to_postgres(
     filename: str,
@@ -85,10 +79,7 @@ def save_to_postgres(
 ):
     """
     Conecta ao PostgreSQL e insere cada chunk em public.documents,
-    retorna documentos reordenados via cross-encoder e coleta métricas.
-
-    Mantém funções antigas de chunking e geração de embedding,
-    adiciona re-ranking e métricas.
+    depois reordena com cross-encoder e coleta métricas.
     """
     conn = None
     try:
@@ -101,7 +92,7 @@ def save_to_postgres(
         )
         cur = conn.cursor()
 
-        # Chunking semântico (função antiga hierárquica)
+        # Chunking semântico (usa hierarchical_chunk, que engloba sections e sliding window)
         chunks = hierarchical_chunk(text, metadata)
         inserted = []
         logging.info(f"'{filename}' → {len(chunks)} chunks para salvar")
@@ -121,7 +112,7 @@ def save_to_postgres(
         conn.commit()
         logging.info(f"Dados inseridos em '{db_name}'.")
 
-        # Re-ranking usando cross-encoder (nova etapa)
+        # Re-ranking usando cross-encoder
         query_text = metadata.get('__query', '')
         reranked = rerank_with_cross_encoder(inserted, query_text)
         logging.info(f"Inseridos {len(inserted)} chunks; retornando {len(reranked)} após re-ranking.")
