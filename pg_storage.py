@@ -1,10 +1,16 @@
+#pg_storage.py
 import os
 import logging
 import json
 import psycopg2
 import torch
 
-from adaptive_chunker import hierarchical_chunk, get_cross_encoder, get_sbert_model
+from adaptive_chunker import (
+    hierarchical_chunk,
+    semantic_fine_sections,
+    get_cross_encoder,
+    get_sbert_model,
+)
 from config import PG_HOST, PG_PORT, PG_USER, PG_PASSWORD
 from metrics import record_metrics  # Decorator de métricas
 
@@ -80,9 +86,6 @@ def save_to_postgres(
     """
     Conecta ao PostgreSQL e insere cada chunk em public.documents,
     retorna documentos reordenados via cross-encoder e coleta métricas.
-
-    Chunking semântico agora usa o mesmo modelo selecionado para embeddings,
-    se for o Serafim IR, caso contrário mantém o SBERT padrão (MiniLM).
     """
     conn = None
     try:
@@ -95,8 +98,8 @@ def save_to_postgres(
         )
         cur = conn.cursor()
 
-        # Chunking semântico (dinâmico por modelo de embedding)
-        chunks = hierarchical_chunk(text, metadata, chunk_model_name=embedding_model)
+        # Chunking semântico
+        chunks = hierarchical_chunk(text, metadata)
         inserted = []
         logging.info(f"'{filename}' → {len(chunks)} chunks para salvar")
 
@@ -106,7 +109,8 @@ def save_to_postgres(
             emb = generate_embedding(clean_chunk, embedding_model, embedding_dim)
             rec = {**metadata, "__parent": filename, "__chunk_index": idx}
             cur.execute(
-                "INSERT INTO public.documents (content, metadata, embedding) VALUES (%s, %s::jsonb, %s) RETURNING id",
+                "INSERT INTO public.documents (content, metadata, embedding) "
+                "VALUES (%s, %s::jsonb, %s) RETURNING id",
                 (clean_chunk, json.dumps(rec, ensure_ascii=False), emb)
             )
             doc_id = cur.fetchone()[0]
