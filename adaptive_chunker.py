@@ -1,8 +1,7 @@
-#adaptive_chunker.py
 import os
 import logging
 import re
-from typing import List
+from typing import List, Optional
 import torch
 import nltk
 from nltk.corpus import wordnet
@@ -13,6 +12,7 @@ from config import (
     SEPARATORS,
     SLIDING_WINDOW_OVERLAP_RATIO,
     SBERT_MODEL_NAME,
+    SERAFIM_EMBEDDING_MODEL,
     MAX_SEQ_LENGTH
 )
 from utils import filter_paragraphs
@@ -61,67 +61,13 @@ def get_cross_encoder(model_name: str = 'cross-encoder/ms-marco-MiniLM-L-6-v2'):
         _CROSS_ENCODER_CACHE[model_name] = CrossEncoder(model_name)
     return _CROSS_ENCODER_CACHE[model_name]
 
-# Pré-carrega modelo SBERT na importação do módulo
+# Pré-carrega modelo SBERT default (MiniLM) na importação
 try:
-    _sbert = get_sbert_model(SBERT_MODEL_NAME)
+    _ = get_sbert_model(SBERT_MODEL_NAME)
 except Exception:
     raise
 
-# Define limite de tokens com base no tokenizer
-try:
-    MODEL_MAX_TOKENS = getattr(_sbert, "max_seq_length", _sbert.tokenizer.model_max_length)
-except Exception:
-    MODEL_MAX_TOKENS = MAX_SEQ_LENGTH
-
-# Funções antigas de transform_content, sliding_window_chunk e semantic_fine_sections
-_summarizer = None
-_ner = None
-_paraphraser = None
-
-def get_summarizer():
-    global _summarizer
-    if _summarizer is None:
-        _summarizer = pipeline(
-            'summarization',
-            model='sshleifer/distilbart-cnn-12-6',
-            revision='a4f8f3e',
-            device=-1
-        )
-    return _summarizer
-
-def get_ner():
-    global _ner
-    if _ner is None:
-        _ner = pipeline(
-            'ner',
-            model='dbmdz/bert-large-cased-finetuned-conll03-english',
-            aggregation_strategy='simple',
-            device=-1
-        )
-    return _ner
-
-def get_paraphraser():
-    global _paraphraser
-    if _paraphraser is None:
-        _paraphraser = pipeline(
-            'text2text-generation',
-            model='t5-small',
-            device=-1
-        )
-    return _paraphraser
-
-def semantic_fine_sections(text: str) -> List[str]:
-    pattern = re.compile(r'^(?P<heading>\d+(?:\.\d+)*\s+.+)$', re.MULTILINE)
-    splits = pattern.split(text)
-    if len(splits) < 3:
-        return [text]
-    sections = []
-    for i in range(1, len(splits), 2):
-        heading = splits[i].strip()
-        content = splits[i+1].strip() if i+1 < len(splits) else ''
-        sections.append(f"{heading}\n{content}")
-    return sections
-
+# Funções auxiliares (transform_content, sliding_window_chunk, expand_query)
 def transform_content(section: str) -> str:
     words = section.split()
     if len(words) <= 10:
@@ -130,22 +76,17 @@ def transform_content(section: str) -> str:
     max_len = min(150, max(10, input_len // 2))
     min_len = max(5, int(max_len * 0.25))
 
-    # sumarização
     try:
         summary = get_summarizer()(section, max_length=max_len, min_length=min_len, truncation=True)[0]['summary_text']
     except Exception as e:
         logging.warning(f"Sumarização falhou: {e}")
         summary = section
-
-    # extração de entidades
     try:
         ents = get_ner()(section)
         ent_str = '; '.join({e['word'] for e in ents})
     except Exception as e:
         logging.warning(f"NER falhou: {e}")
         ent_str = ''
-
-    # paráfrase
     try:
         para = get_paraphraser()(summary, max_length=max_len)[0]['generated_text']
     except Exception as e:
@@ -170,9 +111,6 @@ def sliding_window_chunk(p: str, window_size: int, overlap: int) -> List[str]:
     return chunks
 
 def expand_query(text: str, top_k: int = 5) -> str:
-    """
-    Gera termos de expansão usando sinônimos do WordNet para melhorar recall.
-    """
     terms = []
     try:
         for token in set(text.lower().split()):
@@ -182,10 +120,22 @@ def expand_query(text: str, top_k: int = 5) -> str:
                 terms.extend(list(lemmas)[:top_k])
     except Exception as e:
         logging.warning(f"Expansão de query falhou: {e}")
-    expanded = text + ' ' + ' '.join(terms)
-    return expanded.strip()
+    return text + ' ' + ' '.join(terms)
 
-def hierarchical_chunk(text: str, metadata: dict) -> List[str]:
+# Função principal de chunking semântico, dinâmica por modelo
+def hierarchical_chunk(
+    text: str,
+    metadata: dict,
+    chunk_model_name: Optional[str] = None
+) -> List[str]:
+    # escolha dinâmica do modelo para chunking
+    use_model = chunk_model_name if chunk_model_name == SERAFIM_EMBEDDING_MODEL else SBERT_MODEL_NAME
+    sbert = get_sbert_model(use_model)
+    try:
+        max_tokens = getattr(sbert, "max_seq_length", sbert.tokenizer.model_max_length)
+    except Exception:
+        max_tokens = MAX_SEQ_LENGTH
+
     query = metadata.get('__query')
     if query:
         metadata['__query_expanded'] = expand_query(query)
@@ -197,17 +147,17 @@ def hierarchical_chunk(text: str, metadata: dict) -> List[str]:
 
     for sec in sections:
         enriched = transform_content(sec)
-        tokens = _sbert.tokenizer.tokenize(enriched)
-        if len(tokens) <= MODEL_MAX_TOKENS:
+        tokens = sbert.tokenizer.tokenize(enriched)
+        if len(tokens) <= max_tokens:
             final_chunks.append(enriched)
         else:
-            max_ov = int(MODEL_MAX_TOKENS * SLIDING_WINDOW_OVERLAP_RATIO)
-            parts = sliding_window_chunk(enriched, MODEL_MAX_TOKENS, max_ov)
+            overlap = int(max_tokens * SLIDING_WINDOW_OVERLAP_RATIO)
+            parts = sliding_window_chunk(enriched, max_tokens, overlap)
             if not parts:
                 parts = TokenTextSplitter(
                     separators=SEPARATORS,
                     chunk_size=CHUNK_SIZE,
-                    chunk_overlap=max_ov
+                    chunk_overlap=overlap
                 ).split_text(enriched)
             final_chunks.extend(parts)
 
