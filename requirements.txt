@@ -10,6 +10,7 @@ PyPDF2
 PyMuPDF
 unstructured
 python-docx
+pymupdf4llm
 
 # Novas ferramentas de extração
 pdfplumber
