@@ -123,7 +123,7 @@ PG_PORT=5432
 PG_SCHEMAS=vector_1024,vector_384,vector_768,vector_1536
 PG_SCHEMA_DEFAULT=vector_384
 PG_USER=vector_store
-PG_PASSWORD=902grego1989
+PG_PASSWORD=senha
 
 # Modelos
 OLLAMA_EMBEDDING_MODEL=mxbai-embed-large
