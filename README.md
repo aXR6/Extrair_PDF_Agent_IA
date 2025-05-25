@@ -4,167 +4,155 @@
 
 Este projeto oferece um pipeline completo para processamento de documentos PDF e DOCX, incluindo:
 
-- **Extração de Texto** com múltiplas estratégias (PyPDF2, PDFMiner, OCR, Tika, Unstructured, PDFPlumber, PyMuPDF4LLM)
-- **Chunking Inteligente**: filtros de parágrafos, enriquecimento semântico (sumarização, NER, paráfrase, expansão de queries) e sliding-window
-- **Embeddings Vetoriais**: suporte a múltiplos modelos (Ollama, Serafim-PT, MPNet-EN, MiniLM)
-- **Indexação e Busca** híbrida (RAG) no PostgreSQL/pgvector e MongoDB/GridFS
-- **Re-ranking** com Cross-Encoder (ms-marco) para maior precisão
+- **Extração de texto** com múltiplas estratégias (PyPDFLoader, PDFMinerLoader, PDFMiner Low-Level, Unstructured, OCR, PDFPlumber, Tika, PyMuPDF4LLM)
+- **Chunking inteligente**: filtragem de parágrafos, reconhecimento de headings, agrupamento de parágrafos inteiros, sliding window com overlap configurável e fallback para parágrafos longos
+- **Embeddings vetoriais**: suporte a múltiplos modelos (Ollama, Serafim-PT-IR, MPNet, MiniLM) com padding e truncation automáticos
+- **Indexação e busca híbrida** (RAG) com PostgreSQL + pgvector
+- **Re-ranking** com Cross-Encoder (ms-marco-MiniLM-L-6-v2) para maior precisão
 - **Monitoramento** via Prometheus (latência, contagem de buscas, tamanho dos resultados)
-- **CLI Interativo**: seleção de estratégia, banco, schema, modelo, dimensão e batch-processing recursivo
-
-O CLI processa automaticamente todos os subdiretórios e “pastas irmãs” do caminho raiz indicado, com barra de progresso.
+- **CLI interativo**: seleção de schema, estratégia de extração, modelo, dimensão, modo verboso e processamento em lote com barra de progresso e estatísticas em tempo real
 
 ---
 
 ## Funcionalidades
 
-### 1. Extração de Texto
+### Extração de Texto
 
-- **Híbrido automático**: detecta PDFs criptografados e faz fallback OCR (pytesseract) se necessário
+- **Detecção automática** de PDFs criptografados com fallback para OCR (pytesseract + pdf2image)
 - **Estratégias disponíveis**:
     - PyPDFLoader (LangChain)
     - PDFMinerLoader (LangChain)
     - PDFMiner Low-Level (pdfminer.six)
     - Unstructured (.docx)
-    - OCR Strategy (pytesseract + pdf2image)
+    - OCR Hybrid (pytesseract)
     - PDFPlumber
     - Apache Tika
-    - PyMuPDF4LLM → Markdown
+    - PyMuPDF4LLM (Markdown)
 
-### 2. Chunking Inteligente
+### Chunking Inteligente
 
-1. **Filtragem de parágrafos**: remove sumários, índices e trechos curtos (< 50 caracteres)
-2. **Divisão hierárquica**: reconhece headings numéricos (`1.2 Seção`) e quebra em seções semânticas
-3. **Enriquecimento de conteúdo**:
-     - **Sumarização** (`sshleifer/distilbart-cnn-12-6`)
-     - **NER** (`dbmdz/bert-large-cased-finetuned-conll03-english`)
-     - **Paráfrase** (`t5-small`)
-4. **Sliding-Window**: sobreposição percentual configurável (`SLIDING_WINDOW_OVERLAP_RATIO`)
-5. **TokenTextSplitter**: separadores customizados para textos longos
-6. **Padding / Truncamento**: embeddings ajustados para dimensão estável
-7. **Expansão de Query**: sinônimos via WordNet em `metadata.__query_expanded`
+- **Filtragem de parágrafos**: remove sumários, índices e trechos curtos (< 50 caracteres)
+- **Reconhecimento de headings**: seções semânticas baseadas em headings numéricos
+- **Agrupamento de parágrafos**: utiliza parágrafos inteiros até `max_tokens`
+- **Subdivisão de parágrafos longos**: sliding window com overlap (`SLIDING_WINDOW_OVERLAP_RATIO`)
+- **Fallback TokenTextSplitter**: para casos excepcionais de parágrafos maiores que o limite
+- **Expansão de query**: sinônimos via WordNet em `metadata.__query_expanded`
 
-### 3. Modelos de Embedding & Dimensões
+### Modelos de Embedding e Dimensões
 
-Disponíveis no menu CLI:
+| Opção | Modelo                                                                                       | Dimensão |
+|:-----:|:---------------------------------------------------------------------------------------------|:--------:|
+| 1     | `mxbai-embed-large` (Ollama API)                                                             | 1024     |
+| 2     | `PORTULAN/serafim-900m-portuguese-pt-sentence-encoder-ir` (pt-BR IR)                         | 1536     |
+| 3     | `sentence-transformers/all-mpnet-base-v2` (English MPNet)                                    | 768      |
+| 4     | `sentence-transformers/all-MiniLM-L6-v2` (MiniLM L6 multilingual)                            | 384      |
+| 5     | `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` (MiniLM L12 multilingual)      | 384      |
 
-| Opção | Modelo                                                                                   | Dimensão |
-|:-----:|:-----------------------------------------------------------------------------------------|:--------:|
-| 1     | `mxbai-embed-large` (Ollama API)                                                         | 1024     |
-| 2     | `PORTULAN/serafim-900m-portuguese-pt-sentence-encoder` (pt-BR)                           | 1536     |
-| 3     | `sentence-transformers/all-mpnet-base-v2` (English MPNet)                                | 768      |
-| 4     | `sentence-transformers/all-MiniLM-L6-v2` (MiniLM L6 multilingual)                        | 384      |
-| 5     | `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` (MiniLM L12 multilingual)  | 384      |
+> Todos os modelos e dimensões são configurados no arquivo `.env`.
 
-> O arquivo `.env` contém variáveis para cada modelo e dimensão (ver seção “Configuração”).
+### Indexação e Busca
 
-### 4. Indexação e Busca
-
-#### MongoDB
-
-- Documentos chunked + metadados na collection definida
-- Binários em GridFS
-
-#### PostgreSQL + pgvector
-
-- Tabela `public.documents`:
+- **Tabela `public.documents`**:
     - `id` (BIGSERIAL)
     - `content` (TEXT)
     - `metadata` (JSONB)
-    - `embedding` (VECTOR(N)) — N = dimensão do modelo escolhido
-    - `tsv_full` (TSVECTOR)
-- Triggers e funções para manter `tsv_full` atualizado automaticamente
-- Índices:
-    - **HNSW** / **IVFFlat** para vetores
-    - **GIN** em `tsv_full`
-    - **GIST+pg_trgm** para campos críticos de metadata
+    - `embedding` (VECTOR[N])
+- **Extensões e índices**:
+    - `vector` (pgvector)
+    - IVFFlat / HNSW para vetores
+    - `GIN` para `metadata` e `tsv_full`
+    - `GIST + pg_trgm` para campos textuais críticos
+- **Funções de busca**:
+    - `match_documents_hybrid(...)`
+    - `match_documents_precise(...)`
 
-#### Funções de Busca
+### Re-ranking e Métricas
 
-- `match_documents_hybrid(query_embedding, query_text, …)`
-- `match_documents_precise(query_embedding, query_text, …)`
+- **Cross-Encoder**: `ms-marco-MiniLM-L-6-v2` para re-ranking de pares (query, content)
+- **Prometheus** (porta 8000):
+    - `rag_query_executions_total`
+    - `rag_query_duration_seconds`
+    - `rag_last_query_result_count`
 
-### 5. Re-ranking & Métricas
+### CLI Interativo e Estatísticas
 
-- **Cross-Encoder** (`cross-encoder/ms-marco-MiniLM-L-6-v2`) para reranking de pares (query, content)
-- **Prometheus**:
-    - Métricas expostas em `/metrics` (porta 8000):
-        - `rag_query_executions_total`
-        - `rag_query_duration_seconds`
-        - `rag_last_query_result_count`
-
-### 6. CLI Interativo & Batch Processing
-
-- **Menu Principal**:
-    1. Selecionar estratégia de extração
-    2. Selecionar SGBD (MongoDB ou PostgreSQL)
-    3. (se PostgreSQL) Selecionar schema (`vector_1024`, `vector_384`, `vector_1536`, `vector_768`)
-    4. Processar **arquivo**
-    5. Processar **pasta** (inclui subpastas + “pastas irmãs”)
-    6. Selecionar modelo de embedding
-    7. Selecionar dimensão
+- **Menu principal**:
+    1. Selecionar schema (`PG_SCHEMAS` do `.env`)
+    2. Selecionar estratégia de extração
+    3. Selecionar embedding model
+    4. Selecionar dimensão
+    5. Processar arquivo (tempo e contadores)
+    6. Processar pasta (inclui subpastas, contagem total, progresso, sucesso/erros)
     0. Sair
-- **Progress Bar** via `tqdm`
-- **Arquivos finalizados** movidos para subpasta `processed`
+- **Flags**:
+    - `--verbose`: habilita logs detalhados
+- **Barra de progresso** com `tqdm` e `set_postfix` para contadores
+- **Resumo final**: totais de processados, erros e tempo total
 
 ---
 
-## Como Usar
+## Instalação e Uso
 
-1. **Clone o repositório**
+1. **Clone o repositório**:
      ```bash
      git clone https://github.com/seu_usuario/seu_projeto.git
      cd seu_projeto
      ```
-2. **Ajuste o `.env`** (veja seção abaixo)
-3. **Instale as dependências**
+2. **Configure o `.env`** conforme exemplo abaixo
+3. **Instale as dependências**:
      ```bash
      pip install -r requirements.txt
      ```
-4. **Aplique o DDL no PostgreSQL** para criar extensões, tabela, triggers e funções
-5. **Execute o CLI**
+4. **Prepare o banco PostgreSQL** (extensões, tabela, índices, funções)
+5. **Execute o CLI**:
      ```bash
-     python3 main.py
+     python3 main.py [--verbose]
      ```
 
---- 
+---
 
 ## Exemplo de `.env`
 
 ```dotenv
-# MongoDB
-MONGO_URI=mongodb://user:pass@host:27017/db?authSource=admin
-DB_NAME=ollama_chat
-COLL_PDF=PDF_
-COLL_BIN=Arq_PDF
-GRIDFS_BUCKET=fs
+# NVD
+NVD_API_KEY=98dbb4f5-7540-4ca1-ae81-ffabf4b076b6
 
 # PostgreSQL
 PG_HOST=192.168.3.32
 PG_PORT=5432
-PG_DB=vector_store
+PG_SCHEMAS=vector_1024,vector_384,vector_768,vector_1536
+PG_SCHEMA_DEFAULT=vector_384
 PG_USER=vector_store
-PG_PASSWORD=senha
-PG_SCHEMA=public
+PG_PASSWORD=902grego1989
 
-# Modelos e dimensões
+# Modelos
 OLLAMA_EMBEDDING_MODEL=mxbai-embed-large
-DIM_MXBAI=1024
-SERAFIM_EMBEDDING_MODEL=PORTULAN/serafim-900m-portuguese-pt-sentence-encoder
-DIM_SERAFIM=1536
-MPNET_EMBEDDING_MODEL=sentence-transformers/all-mpnet-base-v2
-DIM_MPNET=768
+SERAFIM_EMBEDDING_MODEL=PORTULAN/serafim-900m-portuguese-pt-sentence-encoder-ir
 MINILM_L6_V2=sentence-transformers/all-MiniLM-L6-v2
-DIM_MINILM_L6=384
 MINILM_L12_V2=sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
-DIM_MINIL12=384
+MPNET_EMBEDDING_MODEL=sentence-transformers/all-mpnet-base-v2
+SBERT_MODEL_NAME=${OLLAMA_EMBEDDING_MODEL}
 
-# Outros
+# Dimensões
+DIM_MXBAI=1024
+DIM_SERAFIM=1536
+DIM_MINILM_L6=384
+DIM_MINIL12=384
+DIM_MPNET=768
+
+# OCR
 OCR_THRESHOLD=100
+
+# Chunking
 CHUNK_SIZE=1024
 CHUNK_OVERLAP=700
 SLIDING_WINDOW_OVERLAP_RATIO=0.25
 MAX_SEQ_LENGTH=128
+SEPARATORS="\n\n|\n|.|!|?|;"
+
+# CSV NVD
+CSV_FULL=vulnerabilidades_full.csv
+CSV_INCR=vulnerabilidades_incrementais.csv
 ```
 
 ---
@@ -172,10 +160,9 @@ MAX_SEQ_LENGTH=128
 ## Exemplo de Commit
 
 ```text
-feat(cli): adiciona modelo MPNet-EN e schema vector_768
+feat: atualiza README para versão estável 1.0.0
 
-- .env: inclui MPNET_EMBEDDING_MODEL e DIM_MPNET
-- config.py: carrega novos modelos e dimensões
-- main.py: atualiza menu para opção MPNet e schema vector_768
-- SQL: adiciona tabela/vector dimension=”768”
+- Documenta chunking inteligente e CLI com progresso
+- Inclui seleção de schema e flag `--verbose`
+- Atualiza modelo Serafim-PT-IR no `.env`
 ```
