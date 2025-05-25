@@ -1,4 +1,5 @@
 # config.py
+
 import os
 import logging
 from dotenv import load_dotenv
@@ -24,11 +25,11 @@ PG_USER        = os.getenv("PG_USER")
 PG_PASSWORD    = os.getenv("PG_PASSWORD")
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Embeddings  
+# Embeddings
 OLLAMA_EMBEDDING_MODEL    = os.getenv("OLLAMA_EMBEDDING_MODEL", "mxbai-embed-large")
 SERAFIM_EMBEDDING_MODEL   = os.getenv(
     "SERAFIM_EMBEDDING_MODEL",
-    "PORTULAN/serafim-900m-portuguese-pt-sentence-encoder"
+    "PORTULAN/serafim-900m-portuguese-pt-sentence-encoder-ir"
 )
 MINILM_L6_V2              = os.getenv("MINILM_L6_V2", "sentence-transformers/all-MiniLM-L6-v2")
 MINILM_L12_V2             = os.getenv("MINILM_L12_V2", "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
@@ -67,7 +68,7 @@ MAX_SEQ_LENGTH = int(os.getenv("MAX_SEQ_LENGTH", "128"))
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Modelo SBERT (para semantic chunking)
-# — Agora usa por padrão MiniLM L6
+# — Mantém chunking em MiniLM L6, independentemente do modelo de embedding
 SBERT_MODEL_NAME = os.getenv(
     "SBERT_MODEL_NAME",
     MINILM_L6_V2

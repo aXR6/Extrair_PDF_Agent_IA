@@ -4,7 +4,7 @@
 serve.py – Embedding HTTP Server
 
 Exponha embeddings dos modelos Sentence-Transformers via FastAPI.
-Por padrão, utiliza o modelo Serafim configurado em SERAFIM_EMBEDDING_MODEL.
+Por padrão, utiliza o modelo Serafim IR configurado em SERAFIM_EMBEDDING_MODEL.
 
 Uso:
   pip install fastapi uvicorn sentence-transformers torch
@@ -21,11 +21,8 @@ import uvicorn
 # Porta padrão
 DEFAULT_PORT = int(os.getenv("EMBEDDING_SERVER_PORT", "11435"))
 
-# Modelo Serafim (corrigido)
-SERAFIM_EMBEDDING_MODEL = os.getenv(
-    "SERAFIM_EMBEDDING_MODEL",
-    "PORTULAN/serafim-900m-portuguese-pt-sentence-encoder"
-)
+# Modelo Serafim IR como padrão
+from config import SERAFIM_EMBEDDING_MODEL
 
 app = FastAPI(title="Embedding Server")
 
@@ -35,7 +32,7 @@ _loaded_models: Dict[str, SentenceTransformer] = {}
 class EmbeddingRequest(BaseModel):
     model: str = Field(
         default=SERAFIM_EMBEDDING_MODEL,
-        description="Nome do modelo SentenceTransformer (padrão: Serafim)"
+        description="Nome do modelo SentenceTransformer (padrão: Serafim IR)"
     )
     input: Union[str, List[str]] = Field(
         ..., description="Texto único ou lista de textos para embedar"
