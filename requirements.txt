@@ -32,3 +32,4 @@ requests
 # === Outras utilidades ===
 gridfs
 prometheus_client
+tiktoken
