@@ -1,3 +1,4 @@
+# pg_storage.py
 import os
 import logging
 import json
@@ -6,78 +7,60 @@ import torch
 
 from adaptive_chunker import hierarchical_chunk, get_cross_encoder, get_sbert_model
 from config import PG_HOST, PG_PORT, PG_USER, PG_PASSWORD
-from metrics import record_metrics  # Decorator de métricas
+from metrics import record_metrics  # decorator
 
-# Ajuste para evitar fragmentação de GPU
+# allow GPU fragmentation mitigation
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
-# -------------------------------
-# Função antiga: generate_embedding
-# (mantida aqui, sem modificações)
-# -------------------------------
-def generate_embedding(
-    text: str,
-    model_name: str,
-    dim: int
-) -> list[float]:
+def generate_embedding(text: str, model_name: str, dim: int) -> list[float]:
     """
-    Gera embedding usando SBERT local (modelos Hugging Face).
-    Tenta GPU e, em caso de CUDA OOM, faz fallback para CPU.
+    As before—no changes.
     """
     emb = []
     try:
         sb_model = get_sbert_model(model_name)
-        emb_array = sb_model.encode(text, convert_to_numpy=True)
-        emb = emb_array.tolist() if hasattr(emb_array, "tolist") else list(emb_array)
+        arr = sb_model.encode(text, convert_to_numpy=True)
+        emb = arr.tolist() if hasattr(arr, "tolist") else list(arr)
     except RuntimeError as e:
         msg = str(e).lower()
-        if "cuda out of memory" in msg or "out of memory" in msg:
-            logging.warning("CUDA OOM detected. Falling back to CPU.")
+        if "out of memory" in msg:
+            logging.warning("CUDA OOM, falling back to CPU.")
             try:
                 torch.cuda.empty_cache()
                 sb_model = get_sbert_model(model_name)
-                emb_array = sb_model.encode(text, convert_to_numpy=True)
-                emb = emb_array.tolist() if hasattr(emb_array, "tolist") else list(emb_array)
-            except Exception as cpu_e:
-                logging.error(f"CPU fallback também falhou: {cpu_e}")
+                arr = sb_model.encode(text, convert_to_numpy=True)
+                emb = arr.tolist() if hasattr(arr, "tolist") else list(arr)
+            except Exception:
                 emb = []
         else:
-            logging.error(f"Erro genérico ao gerar embedding: {e}")
+            logging.error(f"Embedding error: {e}")
             emb = []
     except Exception as e:
-        logging.error(f"Erro ao gerar embedding: {e}")
+        logging.error(f"Embedding error: {e}")
         emb = []
 
-    # Ajusta dimensão: pad/truncate
-    if emb and hasattr(emb, '__len__'):
+    # pad/truncate
+    if emb and hasattr(emb, "__len__"):
         if len(emb) != dim:
             if len(emb) > dim:
                 emb = emb[:dim]
             else:
-                emb = emb + [0.0] * (dim - len(emb))
+                emb += [0.0] * (dim - len(emb))
     else:
         emb = [0.0] * dim
 
     return emb
 
-# ---------------------------------------
-# Nova função: rerank_with_cross_encoder
-# ---------------------------------------
 def rerank_with_cross_encoder(results: list, query: str, top_k: int = None) -> list:
-    """
-    Re-rank os documentos usando um modelo cross-encoder para maior precisão.
-    """
+    """As before."""
     ce = get_cross_encoder()
     pairs = [(query, r['content']) for r in results]
     scores = ce.predict(pairs)
     for r, s in zip(results, scores):
         r['rerank_score'] = float(s)
-    ranked = sorted(results, key=lambda x: x['rerank_score'], reverse=True)
-    return ranked[:top_k] if top_k else ranked
+    sorted_ = sorted(results, key=lambda x: x['rerank_score'], reverse=True)
+    return sorted_[:top_k] if top_k else sorted_
 
-# ----------------------------------------------------------------
-# Função aprimorada: save_to_postgres com re-ranking e métricas
-# ----------------------------------------------------------------
 @record_metrics
 def save_to_postgres(
     filename: str,
@@ -88,12 +71,20 @@ def save_to_postgres(
     db_name: str
 ):
     """
-    Conecta ao PostgreSQL e insere cada chunk em public.documents,
-    retorna documentos reordenados via cross-encoder e coleta métricas.
-
-    Mantém funções antigas de chunking e geração de embedding,
-    adiciona re-ranking e métricas.
+    Now: choose chunking model to match embedding_model if it's one of
+    our SBERT-based options, else fallback to default SBERT_MODEL_NAME.
     """
+    # determine chunking model
+    from config import (
+        SERAFIM_EMBEDDING_MODEL,
+        MPNET_EMBEDDING_MODEL
+    )
+    if embedding_model in (SERAFIM_EMBEDDING_MODEL, MPNET_EMBEDDING_MODEL):
+        chunk_model = embedding_model
+    else:
+        from config import SBERT_MODEL_NAME
+        chunk_model = SBERT_MODEL_NAME
+
     conn = None
     try:
         conn = psycopg2.connect(
@@ -105,35 +96,30 @@ def save_to_postgres(
         )
         cur = conn.cursor()
 
-        # Chunking semântico (função antiga hierárquica)
-        chunks = hierarchical_chunk(text, metadata)
+        chunks = hierarchical_chunk(text, metadata, chunk_model)
         inserted = []
-        logging.info(f"'{filename}' → {len(chunks)} chunks para salvar")
+        logging.info(f"'{filename}' → {len(chunks)} chunks to insert")
 
-        # Inserção de cada chunk
         for idx, chunk in enumerate(chunks):
-            clean_chunk = chunk.replace("\x00", "")
-            emb = generate_embedding(clean_chunk, embedding_model, embedding_dim)
+            clean = chunk.replace("\x00", "")
+            emb = generate_embedding(clean, embedding_model, embedding_dim)
             rec = {**metadata, "__parent": filename, "__chunk_index": idx}
             cur.execute(
                 "INSERT INTO public.documents (content, metadata, embedding) VALUES (%s, %s::jsonb, %s) RETURNING id",
-                (clean_chunk, json.dumps(rec, ensure_ascii=False), emb)
+                (clean, json.dumps(rec, ensure_ascii=False), emb)
             )
-            doc_id = cur.fetchone()[0]
-            inserted.append({'id': doc_id, 'content': clean_chunk, 'metadata': rec})
+            did = cur.fetchone()[0]
+            inserted.append({'id': did, 'content': clean, 'metadata': rec})
 
         conn.commit()
-        logging.info(f"Dados inseridos em '{db_name}'.")
+        logging.info(f"Inserted into '{db_name}'.")
 
-        # Re-ranking usando cross-encoder (nova etapa)
-        query_text = metadata.get('__query', '')
-        reranked = rerank_with_cross_encoder(inserted, query_text)
-        logging.info(f"Inseridos {len(inserted)} chunks; retornando {len(reranked)} após re-ranking.")
-
+        # rerank
+        reranked = rerank_with_cross_encoder(inserted, metadata.get('__query', ''))
         return reranked
 
     except Exception as e:
-        logging.error(f"Erro ao salvar em {db_name}: {e}")
+        logging.error(f"Save to Postgres error: {e}")
         if conn:
             conn.rollback()
     finally:

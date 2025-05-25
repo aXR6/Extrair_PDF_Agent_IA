@@ -1,4 +1,4 @@
-#adaptive_chunker.py
+# adaptive_chunker.py
 import os
 import logging
 import re
@@ -21,24 +21,23 @@ from sentence_transformers import SentenceTransformer
 from transformers import pipeline
 from transformers.utils import logging as tf_logging
 
-# Suprime avisos transformers
+# suppress transformers advisory warnings
 os.environ["TRANSFORMERS_NO_ADVISORY_WARNINGS"] = "1"
 tf_logging.set_verbosity_error()
 
-# Garante que o WordNet esteja disponível
+# ensure WordNet is available
 try:
     nltk.data.find('corpora/wordnet')
 except LookupError:
     nltk.download('wordnet', quiet=True)
 
-# Cache de instâncias SBERT e Cross-Encoder
+# caches
 _SBERT_CACHE: dict = {}
 _CROSS_ENCODER_CACHE: dict = {}
 
 def get_sbert_model(model_name: str) -> SentenceTransformer:
     """
-    Retorna instância de SentenceTransformer em cache ou carrega e cacheia.
-    Em caso de falha de OSError, exibe mensagem clara e interrompe.
+    Load (or retrieve from cache) a SentenceTransformer by name.
     """
     if model_name not in _SBERT_CACHE:
         device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -46,28 +45,24 @@ def get_sbert_model(model_name: str) -> SentenceTransformer:
             _SBERT_CACHE[model_name] = SentenceTransformer(model_name, device=device)
         except OSError as e:
             logging.error(
-                f"Não foi possível carregar SBERT '{model_name}': {e}.\n"
-                f"Verifique se o identificador está correto e se há conexão ou cache local."
+                f"Could not load SBERT '{model_name}': {e}. "
+                "Check that identifier or local cache."
             )
             raise
     return _SBERT_CACHE[model_name]
 
 def get_cross_encoder(model_name: str = 'cross-encoder/ms-marco-MiniLM-L-6-v2'):
     """
-    Retorna um CrossEncoder para re-ranking de pares (query, documento).
+    Load (or retrieve from cache) a CrossEncoder for reranking.
     """
     if model_name not in _CROSS_ENCODER_CACHE:
         from sentence_transformers import CrossEncoder
         _CROSS_ENCODER_CACHE[model_name] = CrossEncoder(model_name)
     return _CROSS_ENCODER_CACHE[model_name]
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Função de divisão semântica em seções (precisa existir antes de hierarchical_chunk)
-# ──────────────────────────────────────────────────────────────────────────────
 def semantic_fine_sections(text: str) -> List[str]:
     """
-    Divide o texto em seções baseando-se em headings numéricos (ex: "1.2 Título").
-    Se não encontrar padrões, retorna o texto inteiro como única seção.
+    Split on numeric headings (e.g. "1.2 Title") to preserve semantic sections.
     """
     pattern = re.compile(r'^(?P<heading>\d+(?:\.\d+)*\s+.+)$', re.MULTILINE)
     splits = pattern.split(text)
@@ -80,19 +75,8 @@ def semantic_fine_sections(text: str) -> List[str]:
         sections.append(f"{heading}\n{content}")
     return sections
 
-# Pré-carrega modelo SBERT na importação do módulo
-try:
-    _sbert = get_sbert_model(SBERT_MODEL_NAME)
-except Exception:
-    raise
-
-# Define limite de tokens com base no tokenizer
-try:
-    MODEL_MAX_TOKENS = getattr(_sbert, "max_seq_length", _sbert.tokenizer.model_max_length)
-except Exception:
-    MODEL_MAX_TOKENS = MAX_SEQ_LENGTH
-
-# Funções auxiliares de enriquecimento de chunk
+# we keep no global SBERT instance — chunking may pick any model dynamically
+# define summarizer/NER/paraphraser pipelines lazily
 _summarizer = None
 _ner = None
 _paraphraser = None
@@ -136,39 +120,28 @@ def transform_content(section: str) -> str:
     input_len = len(words)
     max_len = min(150, max(10, input_len // 2))
     min_len = max(5, int(max_len * 0.25))
-
-    # Sumarização
     try:
         summary = get_summarizer()(section, max_length=max_len, min_length=min_len, truncation=True)[0]['summary_text']
-    except Exception as e:
-        logging.warning(f"Sumarização falhou: {e}")
+    except Exception:
         summary = section
-
-    # NER
     try:
         ents = get_ner()(section)
         ent_str = '; '.join({e['word'] for e in ents})
-    except Exception as e:
-        logging.warning(f"NER falhou: {e}")
+    except Exception:
         ent_str = ''
-
-    # Paráfrase
     try:
         para = get_paraphraser()(summary, max_length=max_len)[0]['generated_text']
-    except Exception as e:
-        logging.warning(f"Paráfrase falhou: {e}")
+    except Exception:
         para = summary
-
     header = f"Entities: {ent_str}\n" if ent_str else ''
-    enriched = f"{header}Paraphrase: {para}\nOriginal: {section}"
-    return enriched
+    return f"{header}Paraphrase: {para}\nOriginal: {section}"
 
 def sliding_window_chunk(p: str, window_size: int, overlap: int) -> List[str]:
     tokens = p.split()
     stride = max(1, window_size - overlap)
     chunks: List[str] = []
     for i in range(0, len(tokens), stride):
-        part = tokens[i:i + window_size]
+        part = tokens[i : i + window_size]
         if not part:
             break
         chunks.append(' '.join(part))
@@ -177,9 +150,6 @@ def sliding_window_chunk(p: str, window_size: int, overlap: int) -> List[str]:
     return chunks
 
 def expand_query(text: str, top_k: int = 5) -> str:
-    """
-    Gera termos de expansão usando sinônimos do WordNet para melhorar recall.
-    """
     terms: List[str] = []
     try:
         for token in set(text.lower().split()):
@@ -187,42 +157,52 @@ def expand_query(text: str, top_k: int = 5) -> str:
             if syns:
                 lemmas = {l.name().replace('_', ' ') for s in syns for l in s.lemmas()}
                 terms.extend(list(lemmas)[:top_k])
-    except Exception as e:
-        logging.warning(f"Expansão de query falhou: {e}")
-    expanded = text + ' ' + ' '.join(terms)
-    return expanded.strip()
+    except Exception:
+        pass
+    return text + ' ' + ' '.join(terms)
 
-def hierarchical_chunk(text: str, metadata: dict) -> List[str]:
+def hierarchical_chunk(
+    text: str,
+    metadata: dict,
+    chunk_model_name: str = None
+) -> List[str]:
     """
-    Monta chunks hierárquicos:
-      1) Filtra parágrafos
-      2) Divide em seções semânticas
-      3) Enriquecimento e tokenização
-      4) Sliding-window se ultrapassar tokens
+    Create semantic chunks using:
+      • filter_paragraphs
+      • semantic_fine_sections
+      • optional summarization/NER/paraphrase
+      • token cutoff + sliding-window
+
+    If chunk_model_name provided, SBERT for token count will be loaded from that,
+    otherwise falls back to SBERT_MODEL_NAME from config.
     """
+    model_name = chunk_model_name or SBERT_MODEL_NAME
+    sb_model = get_sbert_model(model_name)
+
+    # expand query if any
     query = metadata.get('__query')
     if query:
         metadata['__query_expanded'] = expand_query(query)
 
-    final_chunks: List[str] = []
+    fragments: List[str] = []
     paras = filter_paragraphs(text)
-    clean_text = "\n\n".join(paras)
-    sections = semantic_fine_sections(clean_text)
+    joined = "\n\n".join(paras)
+    sections = semantic_fine_sections(joined)
 
     for sec in sections:
         enriched = transform_content(sec)
-        tokens = _sbert.tokenizer.tokenize(enriched)
-        if len(tokens) <= MODEL_MAX_TOKENS:
-            final_chunks.append(enriched)
+        tokens = sb_model.tokenizer.tokenize(enriched)
+        if len(tokens) <= getattr(sb_model, "max_seq_length", MAX_SEQ_LENGTH):
+            fragments.append(enriched)
         else:
-            max_ov = int(MODEL_MAX_TOKENS * SLIDING_WINDOW_OVERLAP_RATIO)
-            parts = sliding_window_chunk(enriched, MODEL_MAX_TOKENS, max_ov)
+            max_ov = int(getattr(sb_model, "max_seq_length", MAX_SEQ_LENGTH) * SLIDING_WINDOW_OVERLAP_RATIO)
+            parts = sliding_window_chunk(enriched, getattr(sb_model, "max_seq_length", MAX_SEQ_LENGTH), max_ov)
             if not parts:
                 parts = TokenTextSplitter(
                     separators=SEPARATORS,
                     chunk_size=CHUNK_SIZE,
                     chunk_overlap=max_ov
                 ).split_text(enriched)
-            final_chunks.extend(parts)
+            fragments.extend(parts)
 
-    return final_chunks
+    return fragments
