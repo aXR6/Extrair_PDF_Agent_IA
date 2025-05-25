@@ -1,96 +1,63 @@
+# =====================================================================
 # config.py
-
+# =====================================================================
 import os
 import logging
 from dotenv import load_dotenv
 
-# Carrega variáveis de ambiente do .env
 load_dotenv()
 
-# ──────────────────────────────────────────────────────────────────────────────
-# MongoDB
-# ──────────────────────────────────────────────────────────────────────────────
-MONGO_URI      = os.getenv("MONGO_URI")
-DB_NAME        = os.getenv("DB_NAME", "ollama_chat")
-COLL_PDF       = os.getenv("COLL_PDF", "PDF_")
-COLL_BIN       = os.getenv("COLL_BIN", "Arq_PDF")
-GRIDFS_BUCKET  = os.getenv("GRIDFS_BUCKET", "fs")
+# NVD
+NVD_API_KEY = os.getenv("NVD_API_KEY")
 
-# ──────────────────────────────────────────────────────────────────────────────
 # PostgreSQL
-# ──────────────────────────────────────────────────────────────────────────────
-PG_HOST        = os.getenv("PG_HOST")
-PG_PORT        = os.getenv("PG_PORT")
-PG_DB          = os.getenv("PG_DB")
-PG_SCHEMA      = os.getenv("PG_SCHEMA", "public")
-PG_USER        = os.getenv("PG_USER")
-PG_PASSWORD    = os.getenv("PG_PASSWORD")
+PG_HOST       = os.getenv("PG_HOST")
+PG_PORT       = int(os.getenv("PG_PORT", "5432"))
+PG_USER       = os.getenv("PG_USER")
+PG_PASSWORD   = os.getenv("PG_PASSWORD")
+# Schemas (lista) e default
+PG_SCHEMAS         = [s.strip() for s in os.getenv("PG_SCHEMAS", "").split(",") if s.strip()]
+PG_SCHEMA_DEFAULT  = os.getenv("PG_SCHEMA_DEFAULT")
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Embeddings  
-# ──────────────────────────────────────────────────────────────────────────────
-OLLAMA_EMBEDDING_MODEL    = os.getenv("OLLAMA_EMBEDDING_MODEL", "mxbai-embed-large")
-SERAFIM_EMBEDDING_MODEL   = os.getenv(
-    "SERAFIM_EMBEDDING_MODEL",
-    "PORTULAN/serafim-900m-portuguese-pt-sentence-encoder-ir"
-)
-MINILM_L6_V2              = os.getenv("MINILM_L6_V2", "sentence-transformers/all-MiniLM-L6-v2")
-MINILM_L12_V2             = os.getenv("MINILM_L12_V2", "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
-MPNET_EMBEDDING_MODEL     = os.getenv("MPNET_EMBEDDING_MODEL", "sentence-transformers/all-mpnet-base-v2")
+# CSV locais
+CSV_FULL = os.getenv("CSV_FULL")
+CSV_INCR = os.getenv("CSV_INCR")
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Embeddings dimensions
-# ──────────────────────────────────────────────────────────────────────────────
-DIM_MXBAI      = int(os.getenv("DIM_MXBAI", "1024"))
-DIM_SERAFIM    = int(os.getenv("DIM_SERAFIM", "1536"))
-DIM_MINILM_L6  = int(os.getenv("DIM_MINILM_L6", "384"))
-DIM_MINIL12    = int(os.getenv("DIM_MINIL12", "384"))
-DIM_MPNET      = int(os.getenv("DIM_MPNET", "768"))
+# Modelos de embedding e chunking
+OLLAMA_EMBEDDING_MODEL  = os.getenv("OLLAMA_EMBEDDING_MODEL")
+SERAFIM_EMBEDDING_MODEL = os.getenv("SERAFIM_EMBEDDING_MODEL")
+MINILM_L6_V2            = os.getenv("MINILM_L6_V2")
+MINILM_L12_V2           = os.getenv("MINILM_L12_V2")
+MPNET_EMBEDDING_MODEL   = os.getenv("MPNET_EMBEDDING_MODEL")
+SBERT_MODEL_NAME        = os.getenv("SBERT_MODEL_NAME")
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Parâmetros de extração OCR
-# ──────────────────────────────────────────────────────────────────────────────
+# Dimensões
+DIM_MXBAI     = int(os.getenv("DIM_MXBAI", "0"))
+DIM_SERAFIM   = int(os.getenv("DIM_SERAFIM", "0"))
+DIM_MINILM_L6 = int(os.getenv("DIM_MINILM_L6", "0"))
+DIM_MINIL12   = int(os.getenv("DIM_MINIL12", "0"))
+DIM_MPNET     = int(os.getenv("DIM_MPNET", "0"))
+
+# OCR
 OCR_THRESHOLD = int(os.getenv("OCR_THRESHOLD", "100"))
+OCR_LANGUAGES = os.getenv("OCR_LANGUAGES")
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Parâmetros de chunking
-# ──────────────────────────────────────────────────────────────────────────────
-CHUNK_SIZE     = int(os.getenv("CHUNK_SIZE", "512"))
-CHUNK_OVERLAP  = int(os.getenv("CHUNK_OVERLAP", str(CHUNK_SIZE // 2)))
-SEPARATORS     = os.getenv("SEPARATORS", "\n\n|\n|.|!|?|;").split("|")
+# Chunking
+CHUNK_SIZE                   = int(os.getenv("CHUNK_SIZE", "0"))
+CHUNK_OVERLAP                = int(os.getenv("CHUNK_OVERLAP", "0"))
+SLIDING_WINDOW_OVERLAP_RATIO = float(os.getenv("SLIDING_WINDOW_OVERLAP_RATIO", "0.0"))
+MAX_SEQ_LENGTH               = int(os.getenv("MAX_SEQ_LENGTH", "0"))
+SEPARATORS                   = os.getenv("SEPARATORS").split("|")
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Idiomas para OCR fallback
-# ──────────────────────────────────────────────────────────────────────────────
-OCR_LANGUAGES = os.getenv("OCR_LANGUAGES", "eng+por")
+# Validação
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Sliding-window e semantic chunking
-# ──────────────────────────────────────────────────────────────────────────────
-SLIDING_WINDOW_OVERLAP_RATIO = float(os.getenv("SLIDING_WINDOW_OVERLAP_RATIO", "0.25"))
-SIMILARITY_THRESHOLD         = float(os.getenv("SIMILARITY_THRESHOLD", "0.8"))
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Limite de tokens para modelos SBERT
-# ──────────────────────────────────────────────────────────────────────────────
-MAX_SEQ_LENGTH = int(os.getenv("MAX_SEQ_LENGTH", "128"))
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Modelo SBERT (para semantic chunking)
-# — Mantém o mesmo modelo de chunking (MiniLM)  
-# ──────────────────────────────────────────────────────────────────────────────
-SBERT_MODEL_NAME = os.getenv(
-    "SBERT_MODEL_NAME",
-    MINILM_L6_V2
-)
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Validação básica de variáveis críticas
-# ──────────────────────────────────────────────────────────────────────────────
 def validate_config():
-    missing = [k for k in ("MONGO_URI", "PG_HOST") if not globals().get(k)]
+    missing = []
+    for var in ("PG_HOST","PG_PORT","PG_USER","PG_PASSWORD"): 
+        if not globals().get(var):
+            missing.append(var)
+    if not PG_SCHEMAS or not PG_SCHEMA_DEFAULT:
+        missing.append("PG_SCHEMAS/PG_SCHEMA_DEFAULT")
     if missing:
-        logging.warning(f"Variáveis críticas faltando: {', '.join(missing)}")
-    for name, val in (("CHUNK_SIZE", CHUNK_SIZE), ("CHUNK_OVERLAP", CHUNK_OVERLAP)):
-        if val <= 0:
-            logging.error(f"{name} inválido ({val})")
+        logging.error(f"Variáveis críticas faltando: {missing}")
+        raise RuntimeError(f"Variáveis faltando: {missing}")

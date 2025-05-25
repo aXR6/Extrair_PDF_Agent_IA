@@ -1,36 +1,42 @@
+# =====================================================================
+# main.py
+# =====================================================================
 #!/usr/bin/env python3
-# main.py – CLI de processamento de PDFs
-
 import os
-import logging
+import sys
+import argparse
 import shutil
+import time
+import logging
 from tqdm import tqdm
 
+# Garante que o diretório do script esteja no path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 from config import (
-    MONGO_URI, DB_NAME, COLL_PDF, COLL_BIN, GRIDFS_BUCKET, OCR_THRESHOLD,
+    PG_HOST, PG_PORT, PG_USER, PG_PASSWORD,
+    PG_SCHEMAS, PG_SCHEMA_DEFAULT,
     OLLAMA_EMBEDDING_MODEL, SERAFIM_EMBEDDING_MODEL,
     MINILM_L6_V2, MINILM_L12_V2, MPNET_EMBEDDING_MODEL,
-    DIM_MXBAI, DIM_SERAFIM, DIM_MINILM_L6, DIM_MINIL12, DIM_MPNET
+    DIM_MXBAI, DIM_SERAFIM, DIM_MINILM_L6, DIM_MINIL12, DIM_MPNET,
+    SBERT_MODEL_NAME, OCR_THRESHOLD, validate_config
 )
-from adaptive_chunker import get_sbert_model, SBERT_MODEL_NAME
-from utils import setup_logging, is_valid_file, build_record as build_meta
+from adaptive_chunker import get_sbert_model
 from extractors import (
     is_extraction_allowed, fallback_ocr,
-    PyPDFStrategy, PDFMinerStrategy, PDFMinerLowLevelStrategy,
-    UnstructuredStrategy, OCRStrategy, PDFPlumberStrategy,
+    PyPDFStrategy, PDFMinerStrategy,
+    PDFMinerLowLevelStrategy, UnstructuredStrategy,
+    OCRStrategy, PDFPlumberStrategy,
     TikaStrategy, PyMuPDF4LLMStrategy
 )
-from storage import save_metadata, save_file_binary, save_gridfs
 from pg_storage import save_to_postgres
+from utils import setup_logging, is_valid_file, build_record
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Inicialização de logs e pré-carregamento SBERT
-logging.getLogger("pdfminer").setLevel(logging.ERROR)
-logging.getLogger("PyPDF2").setLevel(logging.ERROR)
+# Valida env e inicializa logs/modelo
+validate_config()
 setup_logging()
 get_sbert_model(SBERT_MODEL_NAME)
 
-# ──────────────────────────────────────────────────────────────────────────────
 # Estratégias de extração
 STRATEGIES = {
     "pypdf":        PyPDFStrategy(),
@@ -42,205 +48,140 @@ STRATEGIES = {
     "tika":         TikaStrategy(),
     "pymupdf4llm":  PyMuPDF4LLMStrategy(),
 }
-STRAT_OPTIONS = {
-    "1": "pypdf", "2": "pdfminer", "3": "pdfminer-low",
-    "4": "unstructured", "5": "ocr", "6": "plumber",
-    "7": "tika", "8": "pymupdf4llm", "0": None
-}
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Modelos e dimensões de embeddings
-EMBEDDING_MODELS = {
+# Mapeamento embeddings e dimensões
+EMBED_MODELS = {
     "1": OLLAMA_EMBEDDING_MODEL,
     "2": SERAFIM_EMBEDDING_MODEL,
     "3": MINILM_L6_V2,
     "4": MINILM_L12_V2,
-    "5": MPNET_EMBEDDING_MODEL,
-    "0": None
+    "5": MPNET_EMBEDDING_MODEL
 }
 DIMENSIONS = {
     "1": DIM_MXBAI,
     "2": DIM_SERAFIM,
     "3": DIM_MINILM_L6,
     "4": DIM_MINIL12,
-    "5": DIM_MPNET,
-    "0": None
+    "5": DIM_MPNET
 }
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Seleção de SGBD e Schemas PostgreSQL
-SGDB_OPTIONS = {"1": "mongo", "2": "postgres", "0": None}
-DB_SCHEMA_OPTIONS = {
-    "1": "vector_1024",
-    "2": "vector_384",
-    "3": "vector_768",
-    "4": "vector_1536",
-    "0": None
-}
+# Helpers
+def clear_screen(): os.system("clear")
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Helpers de menu
-def clear_screen():
-    os.system("clear")
+def process_file(path, strategy, schema, model, dim, results, verbose=False):
+    if verbose:
+        logging.info(f"Processando arquivo: {path}")
+    fn = os.path.basename(path)
+    if not is_valid_file(path):
+        results['errors'] += 1
+        return False
+    try:
+        text = fallback_ocr(path, OCR_THRESHOLD) if not is_extraction_allowed(path) else STRATEGIES[strategy].extract(path)
+        rec = build_record(path, text)
+        save_to_postgres(fn, rec['text'], rec['info'], model, dim, schema)
+        results['processed'] += 1
+        return True
+    except Exception as e:
+        logging.error(f"Erro em {path}: {e}")
+        results['errors'] += 1
+        return False
 
-def select_strategy():
-    print("\n*** Estratégias Disponíveis ***")
-    for k, label in [
-        ("1","PyPDFLoader"),("2","PDFMinerLoader"),("3","PDFMiner Low-Level"),
-        ("4","Unstructured (.docx)"),("5","OCR"),("6","PDFPlumber"),
-        ("7","Apache Tika"),("8","PyMuPDF4LLM"),("0","Voltar")
-    ]:
-        print(f"{k} - {label}")
-    return STRAT_OPTIONS.get(input("Escolha [5]: ").strip())
-
-def select_sgbd():
-    print("\n*** Seleção de SGBD ***")
-    print("1 - MongoDB\n2 - PostgreSQL\n0 - Voltar")
-    return SGDB_OPTIONS.get(input("Escolha [1]: ").strip())
 
 def select_schema():
-    print("\n*** Schemas PostgreSQL Disponíveis ***")
-    print("1 - vector_1024\n2 - vector_384\n3 - vector_768\n4 - vector_1536\n0 - Voltar")
-    return DB_SCHEMA_OPTIONS.get(input("Escolha [1]: ").strip())
+    print("\n*** Selecione Schema PostgreSQL ***")
+    for idx, schema in enumerate(PG_SCHEMAS, start=1):
+        default = " (default)" if schema == PG_SCHEMA_DEFAULT else ""
+        print(f"{idx} - {schema}{default}")
+    choice = input("Escolha [default]: ").strip()
+    return PG_SCHEMAS[int(choice)-1] if choice.isdigit() and 1 <= int(choice) <= len(PG_SCHEMAS) else PG_SCHEMA_DEFAULT
 
-def select_embedding_model():
-    print("\n*** Modelos de Embedding Disponíveis ***")
-    for k, name in [
-        ("1", OLLAMA_EMBEDDING_MODEL),
-        ("2", SERAFIM_EMBEDDING_MODEL),
-        ("3", MINILM_L6_V2),
-        ("4", MINILM_L12_V2),
-        ("5", MPNET_EMBEDDING_MODEL),
-        ("0", "Voltar")
-    ]:
-        print(f"{k} - {name}")
-    return EMBEDDING_MODELS.get(input("Escolha [1]: ").strip())
+
+def select_strategy():
+    print("\n*** Selecione Estratégia de Extração ***")
+    for idx, key in enumerate(STRATEGIES.keys(), start=1):
+        print(f"{idx} - {key}")
+    choice = input("Escolha [ocr]: ").strip()
+    opts = list(STRATEGIES.keys())
+    return opts[int(choice)-1] if choice.isdigit() and 1 <= int(choice) <= len(opts) else 'ocr'
+
+
+def select_embedding():
+    print("\n*** Selecione Modelo de Embedding ***")
+    for k, name in EMBED_MODELS.items(): print(f"{k} - {name}")
+    choice = input("Escolha [1]: ").strip()
+    return EMBED_MODELS.get(choice, OLLAMA_EMBEDDING_MODEL)
+
 
 def select_dimension():
-    print("\n*** Dimensão dos Embeddings ***")
-    for k, d in [
-        ("1", DIM_MXBAI),
-        ("2", DIM_SERAFIM),
-        ("3", DIM_MINILM_L6),
-        ("4", DIM_MINIL12),
-        ("5", DIM_MPNET),
-        ("0", "Voltar")
-    ]:
-        print(f"{k} - {d}")
-    return DIMENSIONS.get(input("Escolha [1]: ").strip())
+    print("\n*** Selecione Dimensão de Embedding ***")
+    for k, d in DIMENSIONS.items(): print(f"{k} - {d}")
+    choice = input("Escolha [1]: ").strip()
+    return DIMENSIONS.get(choice, DIM_MXBAI)
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Processamento de arquivo
-def process_file(path, strategy, sgbd, schema, embedding_model, embedding_dim, results):
-    filename = os.path.basename(path)
-    if not is_valid_file(path):
-        results["errors"].append(path); return
-    if not is_extraction_allowed(path):
-        text = fallback_ocr(path, OCR_THRESHOLD)
-    else:
-        key = "unstructured" if path.lower().endswith(".docx") else strategy
-        text = STRATEGIES[key].extract(path)
-    rec = build_meta(path, text)
-    if sgbd == "mongo":
-        pid = save_metadata(rec, DB_NAME, COLL_PDF, MONGO_URI)
-        save_file_binary(filename, path, pid, DB_NAME, COLL_BIN, MONGO_URI)
-        save_gridfs(path, filename, DB_NAME, GRIDFS_BUCKET, MONGO_URI)
-    else:
-        save_to_postgres(
-            filename, rec["text"], rec["info"],
-            embedding_model, embedding_dim, schema
-        )
-    results["processed"].append(path)
-    # arquivar
-    try:
-        dst = os.path.join(os.path.dirname(path), "processed")
-        os.makedirs(dst, exist_ok=True)
-        shutil.move(path, os.path.join(dst, filename))
-    except:
-        pass
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Fluxo principal
 def main():
-    current_strat   = "ocr"
-    current_sgbd    = "mongo"
-    current_schema  = "vector_1024"
-    current_model   = OLLAMA_EMBEDDING_MODEL
-    current_dim     = DIM_MXBAI
-    results = {"processed": [], "errors": []}
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--verbose', action='store_true', help='Imprime logs detalhados')
+    args = parser.parse_args()
+
+    schema = PG_SCHEMA_DEFAULT
+    strategy = 'ocr'
+    model = OLLAMA_EMBEDDING_MODEL
+    dim = DIM_MXBAI
+    results = {'processed': 0, 'errors': 0}
 
     while True:
         clear_screen()
         print("*** Menu Principal ***")
-        print(f"1 - Selecionar Estratégia    (atual: {current_strat})")
-        print(f"2 - Selecionar SGBD          (atual: {current_sgbd})")
-        offset = 1 if current_sgbd == "postgres" else 0
-        if offset:
-            print(f"3 - Selecionar Schema        (atual: {current_schema})")
-        print(f"{3+offset} - Processar Arquivo")
-        print(f"{4+offset} - Processar Pasta")
-        print(f"{5+offset} - Selecionar Embedding     (atual: {current_model})")
-        print(f"{6+offset} - Selecionar Dimensão      (atual: {current_dim})")
+        print(f"1 - Schema         (atual: {schema})")
+        print(f"2 - Estratégia     (atual: {strategy})")
+        print(f"3 - Embedding Model(atual: {model})")
+        print(f"4 - Dimensão       (atual: {dim})")
+        print("5 - Processar Arquivo")
+        print("6 - Processar Pasta")
         print("0 - Sair")
         choice = input("> ").strip()
 
-        if choice == "0":
+        if choice == '0':
             break
-        elif choice == "1":
-            sel = select_strategy()
-            if sel: current_strat = sel
-        elif choice == "2":
-            sel = select_sgbd()
-            if sel: current_sgbd = sel
-        elif choice == "3" and current_sgbd == "postgres":
-            sel = select_schema()
-            if sel: current_schema = sel
-        elif choice == str(3+offset):
-            p = input("Caminho do arquivo: ").strip()
-            process_file(p, current_strat, current_sgbd,
-                         current_schema, current_model, current_dim, results)
+        elif choice == '1':
+            schema = select_schema()
+        elif choice == '2':
+            strategy = select_strategy()
+        elif choice == '3':
+            model = select_embedding()
+        elif choice == '4':
+            dim = select_dimension()
+        elif choice == '5':
+            path = input("Caminho do arquivo: ").strip()
+            start = time.perf_counter()
+            process_file(path, strategy, schema, model, dim, results, args.verbose)
+            elapsed = time.perf_counter() - start
+            print(f"-> Processado em {elapsed:.2f}s (sucesso: {results['processed']}, erros: {results['errors']})")
             input("\nENTER para voltar…")
-        elif choice == str(4+offset):
-            folder = input("Caminho da pasta: ").strip()
-            all_files = []
-            parent = os.path.dirname(folder)
-            roots = [folder] + (
-                [os.path.join(parent, d) for d in os.listdir(parent)
-                 if os.path.isdir(os.path.join(parent, d)) and os.path.join(parent, d) != folder]
-                if os.path.isdir(parent) else []
-            )
-            for root in roots:
-                for dp, dns, fns in os.walk(root):
-                    if "processed" in dns: dns.remove("processed")
-                    for fn in fns:
-                        if fn.lower().endswith((".pdf", ".docx")):
-                            all_files.append(os.path.join(dp, fn))
-            if not all_files:
-                input("Nenhum PDF/DOCX encontrado. ENTER…"); continue
-
-            print(f"Processando {len(all_files)} arquivos…")
-            for path in tqdm(all_files, desc="Arquivos", unit="file"):
-                process_file(path, current_strat, current_sgbd,
-                             current_schema, current_model, current_dim, results)
+        elif choice == '6':
+            folder = input("Pasta: ").strip()
+            all_files = [os.path.join(dp, fn) for dp, _, fns in os.walk(folder) for fn in fns if fn.lower().endswith(('.pdf', '.docx'))]
+            total = len(all_files)
+            print(f"Total de arquivos a processar: {total}")
+            start = time.perf_counter()
+            pbar = tqdm(all_files, desc="Processando", unit="arquivo")
+            for path in pbar:
+                process_file(path, strategy, schema, model, dim, results, args.verbose)
+                pbar.set_postfix(processados=results['processed'], erros=results['errors'])
+            pbar.close()
+            elapsed = time.perf_counter() - start
+            print(f"\n=== Resumo ===")
+            print(f"Total processados: {results['processed']}")
+            print(f"Total de erros: {results['errors']}")
+            print(f"Tempo total: {elapsed:.2f}s")
             input("\nENTER para voltar…")
-        elif choice == str(5+offset):
-            sel = select_embedding_model()
-            if sel: current_model = sel
-        elif choice == str(6+offset):
-            sel = select_dimension()
-            if sel: current_dim = sel
         else:
-            input("Opção inválida. ENTER para tentar novamente…")
+            input("Opção inválida. ENTER…")
 
     clear_screen()
-    print("\n=== Resumo Final ===")
-    print(f"Processados: {len(results['processed'])}")
-    if results["errors"]:
-        print(f"Erros ({len(results['errors'])}):")
-        for e in results["errors"]:
-            print(f"  - {e}")
-    print("\nEncerrando.")
-    logging.info("Aplicação encerrada.")
+    print("\n=== Encerrado ===")
+    print(f"Processados: {results['processed']}")
+    print(f"Erros: {results['errors']}")
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()

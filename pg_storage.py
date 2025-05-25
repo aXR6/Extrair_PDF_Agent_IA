@@ -1,127 +1,89 @@
-# pg_storage.py
 import os
 import logging
 import json
 import psycopg2
 import torch
-
-from adaptive_chunker import hierarchical_chunk, get_cross_encoder, get_sbert_model
+from adaptive_chunker import hierarchical_chunk, get_sbert_model
 from config import PG_HOST, PG_PORT, PG_USER, PG_PASSWORD
-from metrics import record_metrics  # decorator
+from metrics import record_metrics
 
-# allow GPU fragmentation mitigation
-os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:128"
 
 def generate_embedding(text: str, model_name: str, dim: int) -> list[float]:
-    """
-    As before—no changes.
-    """
-    emb = []
+    """Gera embedding com fallback CPU e liberação de GPU."""
     try:
-        sb_model = get_sbert_model(model_name)
-        arr = sb_model.encode(text, convert_to_numpy=True)
-        emb = arr.tolist() if hasattr(arr, "tolist") else list(arr)
+        model = get_sbert_model(model_name)
+        device = model.device
+        emb = model.encode(text, convert_to_numpy=True)
     except RuntimeError as e:
         msg = str(e).lower()
         if "out of memory" in msg:
-            logging.warning("CUDA OOM, falling back to CPU.")
-            try:
-                torch.cuda.empty_cache()
-                sb_model = get_sbert_model(model_name)
-                arr = sb_model.encode(text, convert_to_numpy=True)
-                emb = arr.tolist() if hasattr(arr, "tolist") else list(arr)
-            except Exception:
-                emb = []
+            logging.warning("CUDA OOM – tentando em CPU")
+            torch.cuda.empty_cache()
+            model = get_sbert_model(model_name)
+            emb = model.encode(text, convert_to_numpy=True)
         else:
-            logging.error(f"Embedding error: {e}")
-            emb = []
+            logging.error(f"Erro embed genérico: {e}")
+            return [0.0] * dim
     except Exception as e:
-        logging.error(f"Embedding error: {e}")
-        emb = []
+        logging.error(f"Erro ao gerar embedding: {e}")
+        return [0.0] * dim
 
-    # pad/truncate
-    if emb and hasattr(emb, "__len__"):
-        if len(emb) != dim:
-            if len(emb) > dim:
-                emb = emb[:dim]
-            else:
-                emb += [0.0] * (dim - len(emb))
-    else:
-        emb = [0.0] * dim
-
-    return emb
-
-def rerank_with_cross_encoder(results: list, query: str, top_k: int = None) -> list:
-    """As before."""
-    ce = get_cross_encoder()
-    pairs = [(query, r['content']) for r in results]
-    scores = ce.predict(pairs)
-    for r, s in zip(results, scores):
-        r['rerank_score'] = float(s)
-    sorted_ = sorted(results, key=lambda x: x['rerank_score'], reverse=True)
-    return sorted_[:top_k] if top_k else sorted_
+    vec = emb.tolist() if hasattr(emb, "tolist") else list(emb)
+    # ajusta comprimento
+    if len(vec) < dim:
+        vec += [0.0] * (dim - len(vec))
+    elif len(vec) > dim:
+        vec = vec[:dim]
+    # limpa GPU
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    return vec
 
 @record_metrics
-def save_to_postgres(
-    filename: str,
-    text: str,
-    metadata: dict,
-    embedding_model: str,
-    embedding_dim: int,
-    db_name: str
-):
-    """
-    Now: choose chunking model to match embedding_model if it's one of
-    our SBERT-based options, else fallback to default SBERT_MODEL_NAME.
-    """
-    # determine chunking model
-    from config import (
-        SERAFIM_EMBEDDING_MODEL,
-        MPNET_EMBEDDING_MODEL
-    )
-    if embedding_model in (SERAFIM_EMBEDDING_MODEL, MPNET_EMBEDDING_MODEL):
-        chunk_model = embedding_model
-    else:
-        from config import SBERT_MODEL_NAME
-        chunk_model = SBERT_MODEL_NAME
-
+def save_to_postgres(filename: str, text: str, metadata: dict,
+                     embedding_model: str, embedding_dim: int, schema: str):
     conn = None
     try:
         conn = psycopg2.connect(
-            host=PG_HOST,
-            port=PG_PORT,
-            dbname=db_name,
-            user=PG_USER,
-            password=PG_PASSWORD
+            host=PG_HOST, port=PG_PORT, dbname=schema,
+            user=PG_USER, password=PG_PASSWORD
         )
         cur = conn.cursor()
 
-        chunks = hierarchical_chunk(text, metadata, chunk_model)
+        chunks = hierarchical_chunk(text, metadata, embedding_model)
         inserted = []
-        logging.info(f"'{filename}' → {len(chunks)} chunks to insert")
+        logging.info(f"'{filename}': {len(chunks)} chunks")
 
         for idx, chunk in enumerate(chunks):
             clean = chunk.replace("\x00", "")
             emb = generate_embedding(clean, embedding_model, embedding_dim)
             rec = {**metadata, "__parent": filename, "__chunk_index": idx}
             cur.execute(
-                "INSERT INTO public.documents (content, metadata, embedding) VALUES (%s, %s::jsonb, %s) RETURNING id",
+                "INSERT INTO public.documents (content, metadata, embedding) "
+                "VALUES (%s, %s::jsonb, %s) RETURNING id",
                 (clean, json.dumps(rec, ensure_ascii=False), emb)
             )
-            did = cur.fetchone()[0]
-            inserted.append({'id': did, 'content': clean, 'metadata': rec})
+            doc_id = cur.fetchone()[0]
+            inserted.append({'id': doc_id, 'content': clean, 'metadata': rec})
 
         conn.commit()
-        logging.info(f"Inserted into '{db_name}'.")
+        # — re-ranking RAG se __query presente
+        query = metadata.get('__query', '')
+        if query:
+            from adaptive_chunker import get_sbert_model
+            from sentence_transformers import CrossEncoder
+            ce = CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')
+            pairs = [(query, r['content']) for r in inserted]
+            scores = ce.predict(pairs)
+            for r, s in zip(inserted, scores):
+                r['rerank_score'] = float(s)
+            inserted.sort(key=lambda x: x['rerank_score'], reverse=True)
 
-        # rerank
-        reranked = rerank_with_cross_encoder(inserted, metadata.get('__query', ''))
-        return reranked
+        return inserted
 
     except Exception as e:
-        logging.error(f"Save to Postgres error: {e}")
-        if conn:
-            conn.rollback()
+        logging.error(f"Erro saving to Postgres: {e}")
+        if conn: conn.rollback()
     finally:
-        if conn:
-            conn.close()
+        if conn: conn.close()
