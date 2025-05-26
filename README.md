@@ -14,9 +14,7 @@ Este projeto oferece um pipeline completo para processamento de documentos PDF e
 
 ---
 
-## Funcionalidades
-## Observação:
-## Distro utilizada: Debian 12
+## Funcionalidades (Distro utilizada: Debian 12)
 
 ### Extração de Texto
 
