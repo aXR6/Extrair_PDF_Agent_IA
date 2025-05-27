@@ -68,42 +68,33 @@ DIMENSIONS = {
 def clear_screen(): os.system("clear")
 
 def process_file(path, strategy, schema, model, dim, results, verbose=False):
-    """
-    Processa um arquivo:
-      1) tenta a estratégia escolhida
-      2) se o texto vier vazio ou abaixo do threshold, aciona fallback_ocr (Tika/Plumber/OCR)
-      3) pula caso ainda seja vazio
-      4) persiste no PostgreSQL
-    """
-    if verbose:
-        logging.info(f"Processando arquivo: {path}")
     fn = os.path.basename(path)
     if not is_valid_file(path):
         results['errors'] += 1
         return False
 
-    # 1) Estratégia selecionada
-    text = ""
+    # 1) Tenta loader escolhido
     try:
         text = STRATEGIES[strategy].extract(path)
     except Exception as e:
-        logging.warning(f"Estratégia '{strategy}' falhou em {fn}: {e}")
+        logging.warning(f"Loader '{strategy}' falhou em {fn}: {e}")
+        text = ""
 
-    # 2) Fallback geral se vazio/curto
+    # 2) Se veio vazio ou abaixo do threshold, usa fallback geral
     if not text or len(text.strip()) < OCR_THRESHOLD:
         if verbose:
             logging.info(f"Aplicando fallback geral em {fn}")
         text = fallback_ocr(path, threshold=OCR_THRESHOLD)
 
-    # 3) Se ainda não extraiu nada, pula o arquivo
-    if not text or len(text.strip()) == 0:
+    # 3) Se ainda estiver vazio, pula o arquivo
+    if not text or not text.strip():
         logging.error(f"Não foi possível extrair texto de {fn}. Pulando.")
         results['errors'] += 1
         return False
 
-    # 4) Persistência
+    # 4) Persiste no Postgres
+    rec = build_record(path, text)
     try:
-        rec = build_record(path, text)
         save_to_postgres(fn, rec['text'], rec['info'], model, dim, schema)
         results['processed'] += 1
         return True
