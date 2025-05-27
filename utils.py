@@ -70,14 +70,39 @@ def chunk_text(text: str, metadata: dict) -> List[str]:
 
 def repair_pdf(path: str) -> str:
     """
-    Tenta consertar o PDF com pikepdf/QPDF e retorna o caminho
-    para um arquivo temporário reparado. Se falhar, retorna o path original.
+    Tenta consertar o PDF em duas etapas:
+      1) pikepdf/QPDF
+      2) Ghostscript
+    Retorna o caminho para um arquivo temporário reparado, ou
+    o path original em caso de falha.
     """
+    # etapa 1: pikepdf
     try:
-        tmp = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
+        tmp1 = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
         with pikepdf.Pdf.open(path) as pdf:
-            pdf.save(tmp.name)
-        return tmp.name
+            pdf.save(tmp1.name)
+        return tmp1.name
     except Exception as e:
-        logging.warning(f"Falha ao reparar PDF {path}: {e}")
-        return path
+        logging.warning(f"pikepdf falhou em '{path}': {e}")
+
+    # etapa 2: Ghostscript
+    try:
+        tmp2 = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
+        cmd = [
+            "gs",
+            "-q",                   # silencioso
+            "-dNOPAUSE",
+            "-dBATCH",
+            "-sDEVICE=pdfwrite",
+            "-dCompatibilityLevel=1.4",
+            "-dPDFSETTINGS=/prepress",
+            f"-sOutputFile={tmp2.name}",
+            path
+        ]
+        subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return tmp2.name
+    except Exception as e:
+        logging.warning(f"Ghostscript falhou em '{path}': {e}")
+
+    # se tudo falhar, retorna original
+    return path

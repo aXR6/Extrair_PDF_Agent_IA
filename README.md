@@ -117,7 +117,7 @@ Este projeto fornece um pipeline completo para processamento de documentos PDF e
         sudo apt install -y \
         poppler-utils   \  # pdftoppm / pdfinfo para pdf2image/pdfminer  
         tesseract-ocr   \  # engine OCR  
-        tesseract-ocr-eng tesseract-ocr-por \ qpdf
+        tesseract-ocr-eng tesseract-ocr-por \ qpdf \ ghostscript
         default-jre     \  # para Apache Tika  
         libmagic1       \  # usado por unstructured  
         imagemagick     \  # em alguns setups o python-magic precisa dele  
