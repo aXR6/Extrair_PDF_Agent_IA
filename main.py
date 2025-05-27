@@ -51,21 +51,31 @@ def clear_screen(): os.system("clear")
 def process_file(path, strategy, schema, model, dim, results, verbose=False):
     """
     Processa um arquivo PDF/DOCX:
-      1) Limpa e normaliza path (remove espaços antes da extensão)
-      2) Repara PDF corrompido (pikepdf + Ghostscript)
-      3) Extrai texto (pipeline unificado)
+      1) Normaliza o path e renomeia o arquivo no disco se tiver espaço antes da extensão
+      2) Repara o PDF corrompido (pikepdf + Ghostscript)
+      3) Extrai texto via pipeline unificado (extract_text)
       4) Persiste no PostgreSQL
     """
-    # 1) Clean e normaliza path
-    original = path
-    path = original.strip()
-    path = os.path.normpath(path)
-    base, ext = os.path.splitext(path)
-    path = base.rstrip() + ext  # remove espaços antes da extensão
+    # 1) Normalize e renomeie (remove espaço fantasma antes de '.pdf' ou '.docx')
+    orig = path.strip()
+    norm = os.path.normpath(orig)
+    base, ext = os.path.splitext(norm)
+    cleaned = base.rstrip() + ext  # elimina espaços finais antes de '.pdf'
+    if cleaned != norm:
+        try:
+            os.rename(norm, cleaned)
+            logging.info(f"Renomeado arquivo: '{norm}' → '{cleaned}'")
+            path = cleaned
+        except Exception as e:
+            logging.warning(f"Não foi possível renomear '{norm}' para '{cleaned}': {e}")
+            path = norm
+    else:
+        path = norm
 
-    # 2) Tenta reparar o PDF
-    path = repair_pdf(path)
     fn = os.path.basename(path)
+
+    # 2) Tenta reparar PDF corrompido
+    path = repair_pdf(path)
 
     # 3) Valida arquivo
     if not is_valid_file(path):
@@ -79,7 +89,7 @@ def process_file(path, strategy, schema, model, dim, results, verbose=False):
         results['errors'] += 1
         return False
 
-    # 5) Persistência
+    # 5) Persiste no Postgres
     rec = build_record(path, text)
     try:
         save_to_postgres(fn, rec['text'], rec['info'], model, dim, schema)
@@ -89,7 +99,6 @@ def process_file(path, strategy, schema, model, dim, results, verbose=False):
         logging.error(f"Erro salvando {fn}: {e}")
         results['errors'] += 1
         return False
-
 
 def select_schema():
     print("\n*** Selecione Schema PostgreSQL ***")
