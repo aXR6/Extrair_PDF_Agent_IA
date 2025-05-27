@@ -1,35 +1,38 @@
 # === Gestão de variáveis de ambiente ===
 python-dotenv
 
-# === Extração de texto / PDF ===
-pymongo
+# === Extração de texto / PDF / DOCX ===
 pytesseract
 pdf2image
 pdfminer.six
 PyPDF2
 PyMuPDF
-unstructured
 python-docx
-pymupdf4llm
-
-# Novas ferramentas de extração
 pdfplumber
 tika
-boto3
+unstructured
+pymupdf4llm
 
-# === Chunking semântico / embeddings ===
+# === Chunking semântico / embeddings / NLP ===
 langchain
 langchain-community
 sentence-transformers>=2.2.0
 transformers>=4.30.0
 torch>=1.11.0
 scikit-learn
+nltk
 
-# === Banco de dados ===
+# === Banco de dados (PostgreSQL + pgvector) ===
 psycopg2-binary
-requests
+
+# === Progresso e logging ===
+tqdm
+rich
+
+# === Monitoramento ===
+prometheus_client
 
 # === Outras utilidades ===
-gridfs
-prometheus_client
 tiktoken
+boto3
+requests
