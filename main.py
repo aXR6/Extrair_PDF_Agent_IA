@@ -15,107 +15,71 @@ from config import (
     OLLAMA_EMBEDDING_MODEL, SERAFIM_EMBEDDING_MODEL,
     MINILM_L6_V2, MINILM_L12_V2, MPNET_EMBEDDING_MODEL,
     DIM_MXBAI, DIM_SERAFIM, DIM_MINILM_L6, DIM_MINIL12, DIM_MPNET,
-    SBERT_MODEL_NAME, OCR_THRESHOLD,
-    validate_config
+    SBERT_MODEL_NAME, OCR_THRESHOLD, validate_config
 )
-from adaptive_chunker import get_sbert_model
-from extractors import extract_text, STRATEGIES_MAP
+from extractors import extract_text
+from extractors import (
+    is_extraction_allowed,
+    fallback_ocr,
+    PyPDFStrategy, PDFMinerStrategy,
+    PDFMinerLowLevelStrategy, UnstructuredStrategy,
+    OCRStrategy, PDFPlumberStrategy,
+    TikaStrategy, PyMuPDF4LLMStrategy
+)
 from pg_storage import save_to_postgres
 from utils import setup_logging, is_valid_file, build_record, repair_pdf
+from adaptive_chunker import get_sbert_model
 
 # Valida env, inicializa logs e pré-carrega SBERT
 validate_config()
 setup_logging()
 get_sbert_model(SBERT_MODEL_NAME)
 
-# Mapeamento de modelos e dimensões de embedding
+# Lista de estratégias disponíveis para o menu (mesmos keys de STRATEGIES_MAP)
+STRATEGY_OPTIONS = [
+    'pypdf', 'pdfminer', 'pdfminer-low', 'unstructured',
+    'ocr', 'plumber', 'tika', 'pymupdf4llm'
+]
+
+# Mapeamento de modelos e dimensões para o menu
 EMBED_MODELS = {
-    "1": OLLAMA_EMBEDDING_MODEL,
-    "2": SERAFIM_EMBEDDING_MODEL,
-    "3": MINILM_L6_V2,
-    "4": MINILM_L12_V2,
-    "5": MPNET_EMBEDDING_MODEL
+    '1': OLLAMA_EMBEDDING_MODEL,
+    '2': SERAFIM_EMBEDDING_MODEL,
+    '3': MINILM_L6_V2,
+    '4': MINILM_L12_V2,
+    '5': MPNET_EMBEDDING_MODEL
 }
 DIMENSIONS = {
-    "1": DIM_MXBAI,
-    "2": DIM_SERAFIM,
-    "3": DIM_MINILM_L6,
-    "4": DIM_MINIL12,
-    "5": DIM_MPNET
+    '1': DIM_MXBAI,
+    '2': DIM_SERAFIM,
+    '3': DIM_MINILM_L6,
+    '4': DIM_MINIL12,
+    '5': DIM_MPNET
 }
 
 # Helpers
-def clear_screen(): os.system("clear")
 
+def clear_screen():
+    os.system('clear')
 
-def process_file(path, strategy, schema, model, dim, results, verbose=False):
-    """
-    Processa um arquivo PDF/DOCX:
-      1) Normaliza o path e renomeia o arquivo no disco se tiver espaço antes da extensão
-      2) Repara o PDF corrompido (pikepdf + Ghostscript)
-      3) Extrai texto via pipeline unificado (extract_text)
-      4) Persiste no PostgreSQL
-    """
-    # 1) Normalize e renomeie (remove espaço fantasma antes de '.pdf' ou '.docx')
-    orig = path.strip()
-    norm = os.path.normpath(orig)
-    base, ext = os.path.splitext(norm)
-    cleaned = base.rstrip() + ext  # elimina espaços finais antes de '.pdf'
-    if cleaned != norm:
-        try:
-            os.rename(norm, cleaned)
-            logging.info(f"Renomeado arquivo: '{norm}' → '{cleaned}'")
-            path = cleaned
-        except Exception as e:
-            logging.warning(f"Não foi possível renomear '{norm}' para '{cleaned}': {e}")
-            path = norm
-    else:
-        path = norm
-
-    fn = os.path.basename(path)
-
-    # 2) Tenta reparar PDF corrompido
-    path = repair_pdf(path)
-
-    # 3) Valida arquivo
-    if not is_valid_file(path):
-        results['errors'] += 1
-        return False
-
-    # 4) Extrai texto via pipeline unificado
-    text = extract_text(path, strategy)
-    if not text or len(text.strip()) < OCR_THRESHOLD:
-        logging.error(f"Não foi possível extrair texto de {fn}. Pulando.")
-        results['errors'] += 1
-        return False
-
-    # 5) Persiste no Postgres
-    rec = build_record(path, text)
-    try:
-        save_to_postgres(fn, rec['text'], rec['info'], model, dim, schema)
-        results['processed'] += 1
-        return True
-    except Exception as e:
-        logging.error(f"Erro salvando {fn}: {e}")
-        results['errors'] += 1
-        return False
 
 def select_schema():
     print("\n*** Selecione Schema PostgreSQL ***")
-    for idx, sch in enumerate(PG_SCHEMAS, start=1):
-        default = " (default)" if sch == PG_SCHEMA_DEFAULT else ""
-        print(f"{idx} - {sch}{default}")
+    for idx, schema in enumerate(PG_SCHEMAS, start=1):
+        default = " (default)" if schema == PG_SCHEMA_DEFAULT else ""
+        print(f"{idx} - {schema}{default}")
     choice = input("Escolha [default]: ").strip()
     return PG_SCHEMAS[int(choice)-1] if choice.isdigit() and 1 <= int(choice) <= len(PG_SCHEMAS) else PG_SCHEMA_DEFAULT
 
 
 def select_strategy():
     print("\n*** Selecione Estratégia de Extração ***")
-    opts = list(STRATEGIES_MAP.keys())
-    for idx, key in enumerate(opts, start=1):
+    for idx, key in enumerate(STRATEGY_OPTIONS, start=1):
         print(f"{idx} - {key}")
     choice = input("Escolha [ocr]: ").strip()
-    return opts[int(choice)-1] if choice.isdigit() and 1 <= int(choice) <= len(opts) else 'ocr'
+    if choice.isdigit() and 1 <= int(choice) <= len(STRATEGY_OPTIONS):
+        return STRATEGY_OPTIONS[int(choice)-1]
+    return 'ocr'
 
 
 def select_embedding():
@@ -134,9 +98,53 @@ def select_dimension():
     return DIMENSIONS.get(choice, DIM_MXBAI)
 
 
+def process_file(path, strategy, schema, model, dim, results, verbose=False):
+    # Normalize e remove espaços antes da extensão
+    orig = path.strip()
+    norm = os.path.normpath(orig)
+    base, ext = os.path.splitext(norm)
+    cleaned = base.rstrip() + ext
+    if cleaned != norm:
+        try:
+            os.rename(norm, cleaned)
+            logging.info(f"Renomeado arquivo: '{norm}' → '{cleaned}'")
+            path = cleaned
+        except Exception as e:
+            logging.warning(f"Falha ao renomear '{norm}' → '{cleaned}': {e}")
+            path = norm
+    else:
+        path = norm
+
+    fn = os.path.basename(path)
+
+    # Repara PDF se precisar
+    path = repair_pdf(path)
+
+    if not is_valid_file(path):
+        results['errors'] += 1
+        return False
+
+    # Extrai texto com pipeline unificado
+    text = extract_text(path, strategy)
+    if not text or len(text.strip()) < OCR_THRESHOLD:
+        logging.error(f"Não foi possível extrair texto de {fn}. Pulando.")
+        results['errors'] += 1
+        return False
+
+    rec = build_record(path, text)
+    try:
+        save_to_postgres(fn, rec['text'], rec['info'], model, dim, schema)
+        results['processed'] += 1
+        return True
+    except Exception as e:
+        logging.error(f"Erro salvando {fn}: {e}")
+        results['errors'] += 1
+        return False
+
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--verbose', action='store_true', help='Imprime logs detalhados')
+    parser.add_argument('--verbose', action='store_true', help='Logs detalhados')
     args = parser.parse_args()
 
     schema = PG_SCHEMA_DEFAULT
@@ -176,8 +184,7 @@ def main():
             input("\nENTER para voltar…")
         elif choice == '6':
             folder = input("Pasta: ").strip()
-            all_files = [os.path.join(dp, fn) for dp, _, fns in os.walk(folder)
-                         for fn in fns if fn.lower().endswith(('.pdf', '.docx'))]
+            all_files = [os.path.join(dp, fn) for dp, _, fns in os.walk(folder) for fn in fns if fn.lower().endswith(('.pdf', '.docx'))]
             total = len(all_files)
             print(f"Total de arquivos a processar: {total}")
             start = time.perf_counter()
@@ -187,7 +194,7 @@ def main():
                 pbar.set_postfix(processados=results['processed'], erros=results['errors'])
             pbar.close()
             elapsed = time.perf_counter() - start
-            print(f"\n=== Resumo ===")
+            print("\n=== Resumo ===")
             print(f"Total processados: {results['processed']}")
             print(f"Total de erros: {results['errors']}")
             print(f"Tempo total: {elapsed:.2f}s")

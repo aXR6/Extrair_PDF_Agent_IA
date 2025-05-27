@@ -1,11 +1,12 @@
-import logging
-import subprocess
 import tempfile
+import subprocess
+import logging
 
 import fitz
-import pdfplumber
 import pytesseract
+import pdfplumber
 from PyPDF2 import PdfReader
+from pdf2image import convert_from_path
 from pdfminer.high_level import extract_text as pdfminer_extract_text
 from tika import parser
 from langchain_community.document_loaders import (
@@ -13,102 +14,210 @@ from langchain_community.document_loaders import (
     PDFMinerLoader,
     UnstructuredWordDocumentLoader
 )
+from config import OCR_LANGUAGES, OCR_THRESHOLD
+import pymupdf4llm  # Nova dependência para extração em Markdown
 
-from config import OCR_LANGUAGES
-from utils import repair_pdf
+# ---------------------------------------------------------------------------
+# Função Unificada de Extração + Fallback Multi-camada
+# ---------------------------------------------------------------------------
 
-def extract_text(path: str, strategy: str, threshold: int = 100) -> str:
+# Mapeamento de estratégias (usado na função extract_text)
+class PyPDFStrategy:
+    """Extrai com loader PyPDFLoader do LangChain."""
+    def extract(self, path: str) -> str:
+        loader = PyPDFLoader(path)
+        docs = loader.load()
+        return "\n".join(d.page_content for d in docs)
+
+class PDFMinerStrategy:
+    """Extrai com loader PDFMinerLoader do LangChain."""
+    def extract(self, path: str) -> str:
+        loader = PDFMinerLoader(path)
+        docs = loader.load()
+        return "\n".join(d.page_content for d in docs)
+
+class PDFMinerLowLevelStrategy:
+    """Extrai usando pdfminer.six de baixo nível (extract_text)."""
+    def extract(self, path: str) -> str:
+        try:
+            return pdfminer_extract_text(path)
+        except Exception as e:
+            logging.error(f"Erro no PDFMiner low-level: {e}")
+            return ""
+
+class UnstructuredStrategy:
+    """Extrai documentos .docx com UnstructuredWordDocumentLoader."""
+    def extract(self, path: str) -> str:
+        loader = UnstructuredWordDocumentLoader(path)
+        docs = loader.load()
+        return "\n".join(d.page_content for d in docs)
+
+class OCRStrategy:
+    """Extrai texto e cai para OCR se híbrido com threshold."""
+    def __init__(self, threshold: int = OCR_THRESHOLD):
+        self.threshold = threshold
+    def extract(self, path: str) -> str:
+        try:
+            doc = fitz.open(path)
+            raw = "\n".join(page.get_text() for page in doc)
+            doc.close()
+            if len(raw.strip()) > self.threshold:
+                return raw
+            images = convert_from_path(path, dpi=300)
+            return "\n\n".join(
+                pytesseract.image_to_string(img, lang=OCR_LANGUAGES)
+                for img in images
+            )
+        except Exception as e:
+            logging.error(f"Erro no OCRStrategy: {e}")
+            return ""
+
+class PDFPlumberStrategy:
+    """Extrai texto e tabelas usando PDFPlumber."""
+    def extract(self, path: str) -> str:
+        text = []
+        with pdfplumber.open(path) as pdf:
+            for page in pdf.pages:
+                page_text = page.extract_text()
+                if page_text:
+                    text.append(page_text)
+        return "\n".join(text)
+
+class TikaStrategy:
+    """Extrai conteúdo via Apache Tika."""
+    def extract(self, path: str) -> str:
+        parsed = parser.from_file(path)
+        return parsed.get("content", "") or ""
+
+class PyMuPDF4LLMStrategy:
+    """Extrai PDF em formato Markdown usando PyMuPDF4LLM."""
+    def extract(self, path: str) -> str:
+        try:
+            return pymupdf4llm.to_markdown(path)
+        except Exception as e:
+            logging.error(f"Erro no PyMuPDF4LLMStrategy: {e}")
+            return ""
+
+STRATEGIES_MAP = {
+    "pypdf": PyPDFStrategy(),
+    "pdfminer": PDFMinerStrategy(),
+    "pdfminer-low": PDFMinerLowLevelStrategy(),
+    "unstructured": UnstructuredStrategy(),
+    "ocr": OCRStrategy(),
+    "plumber": PDFPlumberStrategy(),
+    "tika": TikaStrategy(),
+    "pymupdf4llm": PyMuPDF4LLMStrategy()
+}
+
+
+def extract_text(path: str, strategy: str) -> str:
     """
-    Extrai texto em pipeline unificado:
-      a) Repair via mutool/pikepdf/ghostscript (repair_pdf)
-      b) Estratégia escolhida (PyPDF2, PDFMiner, ...)
-      c) Fallback OCR robusto:
-         - pdfminer.low-level → Tika → PDFPlumber
-         - pdftotext (Poppler) :contentReference[oaicite:5]{index=5}
-         - OCR (pytesseract)
+    Extrai texto usando a estratégia inicial e aplica fallback robusto se necessário.
     """
-    # a) tenta reparo
-    path = repair_pdf(path)
-
     text = ""
-    # b) tentativa primária
+    loader = STRATEGIES_MAP.get(strategy)
+    if loader:
+        try:
+            text = loader.extract(path)
+        except Exception as e:
+            logging.warning(f"Loader '{strategy}' falhou: {e}")
+    else:
+        logging.error(f"Estratégia desconhecida: {strategy}")
+
+    if not text or len(text.strip()) < OCR_THRESHOLD:
+        logging.info(f"Aplicando fallback OCR robusto em {path}")
+        text = fallback_ocr(path, threshold=OCR_THRESHOLD)
+    return text
+
+
+def fallback_ocr(path: str, threshold: int = OCR_THRESHOLD) -> str:
+    """
+    Fluxo de extração robusto:
+      1) PyMuPDF
+      2) PDFMiner low-level
+      3) Apache Tika
+      4) PDFPlumber
+      5) Ghostscript recompactação
+      6) pdftotext (poppler-utils)
+      7) OCR final (pytesseract)
+    """
+    text = ""
+
+    # 1) PyMuPDF
     try:
-        if strategy == "pypdf":
-            docs = PyPDFLoader(path).load()
-            text = "\n".join(d.page_content for d in docs)
-        elif strategy == "pdfminer":
-            docs = PDFMinerLoader(path).load()
-            text = "\n".join(d.page_content for d in docs)
-        elif strategy == "pdfminer-low":
-            text = pdfminer_extract_text(path)
-        elif strategy == "unstructured":
-            docs = UnstructuredWordDocumentLoader(path).load()
-            text = "\n".join(d.page_content for d in docs)
-        elif strategy == "plumber":
-            with pdfplumber.open(path) as pdf:
-                text = "\n".join(p.extract_text() or "" for p in pdf.pages)
-        elif strategy == "tika":
-            parsed = parser.from_file(path)
-            text = parsed.get("content", "") or ""
-        else:  # pymupdf4llm ou ocr puro
-            from extractors import PyMuPDF4LLMStrategy, OCRStrategy
-            if strategy == "pymupdf4llm":
-                text = PyMuPDF4LLMStrategy().extract(path)
-            else:
-                text = OCRStrategy(threshold).extract(path)
-    except Exception as e:
-        logging.warning(f"Erro na estratégia '{strategy}': {e}")
+        doc = fitz.open(path)
+        text = "\n".join(page.get_text() for page in doc)
+        doc.close()
+        if len(text.strip()) > threshold:
+            return text
+    except Exception:
+        logging.debug("PyMuPDF falhou, tentando PDFMiner…")
 
-    if len(text.strip()) > threshold:
-        return text
-
-    # c) Fallback avançado
-    # 1) pdfminer low-level
+    # 2) PDFMiner
     try:
         text = pdfminer_extract_text(path)
         if len(text.strip()) > threshold:
             return text
     except Exception:
-        pass
+        logging.debug("PDFMiner falhou, tentando Tika…")
 
-    # 2) Tika
+    # 3) Apache Tika
     try:
         parsed = parser.from_file(path)
-        tika_txt = parsed.get("content", "") or ""
-        if len(tika_txt.strip()) > threshold:
-            return tika_txt
-    except Exception:
-        pass
+        tika_text = parsed.get("content", "") or ""
+        if len(tika_text.strip()) > threshold:
+            return tika_text
+    except Exception as e:
+        logging.warning(f"Tika falhou: {e}")
 
-    # 3) PDFPlumber
+    # 4) PDFPlumber
     try:
         with pdfplumber.open(path) as pdf:
-            plumber_txt = "\n".join(p.extract_text() or "" for p in pdf.pages)
-        if len(plumber_txt.strip()) > threshold:
-            return plumber_txt
+            plumber_text = "\n".join(p.extract_text() or "" for p in pdf.pages)
+        if len(plumber_text.strip()) > threshold:
+            return plumber_text
     except Exception:
-        pass
+        logging.debug("PDFPlumber falhou, tentando Ghostscript…")
 
-    # 4) pdftotext (Poppler) :contentReference[oaicite:6]{index=6}
+    # 5) Ghostscript recompactação
     try:
-        tmp = tempfile.NamedTemporaryFile(suffix=".txt", delete=False)
+        tmp_pdf = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
+        cmd = [
+            "gs", "-q", "-dNOPAUSE", "-dBATCH",
+            "-sDEVICE=pdfwrite", "-dCompatibilityLevel=1.4",
+            "-dPDFSETTINGS=/prepress",
+            f"-sOutputFile={tmp_pdf.name}", path
+        ]
+        subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        path = tmp_pdf.name
+        # tenta novamente
+        doc = fitz.open(path)
+        text = "\n".join(page.get_text() for page in doc)
+        doc.close()
+        if len(text.strip()) > threshold:
+            return text
+    except Exception:
+        logging.debug("Ghostscript falhou, tentando pdftotext…")
+
+    # 6) pdftotext (poppler-utils)
+    try:
+        tmp_txt = tempfile.NamedTemporaryFile(suffix=".txt", delete=False)
         subprocess.run(
-            ["pdftotext", "-layout", path, tmp.name],
+            ["pdftotext", "-layout", path, tmp_txt.name],
             check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
         )
-        txt = open(tmp.name, encoding="utf-8", errors="ignore").read()
-        if len(txt.strip()) > threshold:
-            return txt
+        pdftxt = open(tmp_txt.name, encoding="utf-8", errors="ignore").read()
+        if len(pdftxt.strip()) > threshold:
+            return pdftxt
     except Exception as e:
         logging.debug(f"pdftotext falhou: {e}")
 
-    # 5) OCR final :contentReference[oaicite:7]{index=7}
+    # 7) OCR final
     try:
-        images = fitz.open(path)
-        pages = [page.get_pixmap(dpi=300).pil_tobytes() for page in images]
+        images = convert_from_path(path, dpi=300)
         return "\n\n".join(
             pytesseract.image_to_string(img, lang=OCR_LANGUAGES)
-            for img in pages
+            for img in images
         )
     except Exception as e:
         logging.error(f"OCR fallback também falhou: {e}")
