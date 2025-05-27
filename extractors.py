@@ -1,3 +1,4 @@
+# extractors.py
 import logging
 import subprocess
 import tempfile
@@ -17,18 +18,16 @@ from config import OCR_LANGUAGES, OCR_THRESHOLD
 from utils import repair_pdf
 
 # ---------------------------------------------------------------------------
-# Estratégias de extração
+# Estratégias individuais
 # ---------------------------------------------------------------------------
 class PyPDFStrategy:
     def extract(self, path: str) -> str:
-        loader = PyPDFLoader(path)
-        docs = loader.load()
+        docs = PyPDFLoader(path).load()
         return "\n".join(d.page_content for d in docs)
 
 class PDFMinerStrategy:
     def extract(self, path: str) -> str:
-        loader = PDFMinerLoader(path)
-        docs = loader.load()
+        docs = PDFMinerLoader(path).load()
         return "\n".join(d.page_content for d in docs)
 
 class PDFMinerLowLevelStrategy:
@@ -36,13 +35,12 @@ class PDFMinerLowLevelStrategy:
         try:
             return pdfminer_extract_text(path)
         except Exception as e:
-            logging.error(f"Erro no PDFMiner low-level: {e}")
+            logging.error(f"Erro PDFMiner low-level: {e}")
             return ""
 
 class UnstructuredStrategy:
     def extract(self, path: str) -> str:
-        loader = UnstructuredWordDocumentLoader(path)
-        docs = loader.load()
+        docs = UnstructuredWordDocumentLoader(path).load()
         return "\n".join(d.page_content for d in docs)
 
 class OCRStrategy:
@@ -52,27 +50,27 @@ class OCRStrategy:
     def extract(self, path: str) -> str:
         try:
             doc = fitz.open(path)
-            raw = "\n".join(page.get_text() for page in doc)
+            raw = "\n".join(p.get_text() for p in doc)
             doc.close()
             if len(raw.strip()) > self.threshold:
                 return raw
             from pdf2image import convert_from_path
-            images = convert_from_path(path, dpi=300)
+            imgs = convert_from_path(path, dpi=300)
             return "\n\n".join(
                 pytesseract.image_to_string(img, lang=OCR_LANGUAGES)
-                for img in images
+                for img in imgs
             )
         except Exception as e:
-            logging.error(f"Erro no OCRStrategy: {e}")
+            logging.error(f"Erro OCRStrategy: {e}")
             return ""
 
 class PDFPlumberStrategy:
     def extract(self, path: str) -> str:
-        text = []
+        pages = []
         with pdfplumber.open(path) as pdf:
             for p in pdf.pages:
-                text.append(p.extract_text() or "")
-        return "\n".join(text)
+                pages.append(p.extract_text() or "")
+        return "\n".join(pages)
 
 class TikaStrategy:
     def extract(self, path: str) -> str:
@@ -85,9 +83,10 @@ class PyMuPDF4LLMStrategy:
             import pymupdf4llm
             return pymupdf4llm.to_markdown(path)
         except Exception as e:
-            logging.error(f"Erro no PyMuPDF4LLMStrategy: {e}")
+            logging.error(f"Erro PyMuPDF4LLMStrategy: {e}")
             return ""
 
+# Mapa de estratégias para escolher por chave
 STRATEGIES_MAP = {
     "pypdf":        PyPDFStrategy(),
     "pdfminer":     PDFMinerStrategy(),
@@ -101,16 +100,16 @@ STRATEGIES_MAP = {
 
 def extract_text(path: str, strategy: str) -> str:
     """
-    1) repair_pdf() → mutool clean, pikepdf, ghostscript
-    2) extrai pela STRATEGIES_MAP[strategy]
-    3) se abaixo do threshold, fallback:
-       a) PDFMiner low-level
-       b) Tika
-       c) PDFPlumber
-       d) pdftotext (poppler-utils)
-       e) OCR (pytesseract)
+    1) repair_pdf()      → mutool clean, pikepdf, ghostscript
+    2) STRATEGIES_MAP     → extração primária
+    3) Cascata de fallbacks:
+         a) PDFMiner low-level
+         b) Tika
+         c) PDFPlumber
+         d) pdftotext (Poppler)
+         e) OCR (pytesseract)
     """
-    # 1) tente reparar
+    # 1) tenta reparar
     path = repair_pdf(path)
 
     # 2) extração primária
@@ -153,7 +152,7 @@ def extract_text(path: str, strategy: str) -> str:
     except Exception:
         pass
 
-    # 3d) pdftotext (poppler-utils)
+    # 3d) pdftotext (Poppler) — **NOSSO NOVO PASSO**  
     try:
         tmp = tempfile.NamedTemporaryFile(suffix=".txt", delete=False)
         subprocess.run(
@@ -166,13 +165,13 @@ def extract_text(path: str, strategy: str) -> str:
     except Exception as e:
         logging.debug(f"pdftotext falhou: {e}")
 
-    # 3e) OCR final
+    # 3e) OCR final por imagem
     try:
         from pdf2image import convert_from_path
-        images = convert_from_path(path, dpi=300)
+        imgs = convert_from_path(path, dpi=300)
         return "\n\n".join(
             pytesseract.image_to_string(img, lang=OCR_LANGUAGES)
-            for img in images
+            for img in imgs
         )
     except Exception as e:
         logging.error(f"OCR final falhou: {e}")
