@@ -32,20 +32,68 @@ def is_extraction_allowed(path: str) -> bool:
         return False
 
 def fallback_ocr(path: str, threshold: int = 100) -> str:
-    """Tenta extrair texto digital e cai para OCR se estiver escaneado ou vazio."""
+    """
+    Fluxo de extração robusto:
+    1) PyMuPDF
+    2) PDFMiner low-level
+    3) Apache Tika
+    4) PDFPlumber
+    5) OCR (pytesseract + pdf2image)
+    """
+    text = ""
+    # 1) PyMuPDF
     try:
+        import fitz
         doc = fitz.open(path)
-        raw = "\n".join(page.get_text() for page in doc)
+        text = "\n".join(page.get_text() for page in doc)
         doc.close()
-        if len(raw.strip()) > threshold:
-            return raw
+        if len(text.strip()) > threshold:
+            return text
+    except Exception:
+        logging.debug("PyMuPDF falhou, tentando PDFMiner…")
+
+    # 2) PDFMiner Low-level
+    try:
+        from pdfminer.high_level import extract_text
+        text = extract_text(path)
+        if len(text.strip()) > threshold:
+            return text
+    except Exception:
+        logging.debug("PDFMiner falhou, tentando Tika…")
+
+    # 3) Apache Tika
+    try:
+        from tika import parser
+        parsed = parser.from_file(path)
+        tika_text = parsed.get("content", "") or ""
+        if len(tika_text.strip()) > threshold:
+            return tika_text
+    except Exception as e:
+        logging.warning(f"Tika falhou: {e}")
+
+    # 4) PDFPlumber
+    try:
+        import pdfplumber
+        with pdfplumber.open(path) as pdf:
+            pages = [p.extract_text() or "" for p in pdf.pages]
+        plumber_text = "\n".join(pages)
+        if len(plumber_text.strip()) > threshold:
+            return plumber_text
+    except Exception:
+        logging.debug("PDFPlumber falhou, tentando OCR…")
+
+    # 5) OCR final
+    try:
+        from pdf2image import convert_from_path
+        import pytesseract
         images = convert_from_path(path, dpi=300)
         return "\n\n".join(
-            pytesseract.image_to_string(img, lang=OCR_LANGUAGES) for img in images
+            pytesseract.image_to_string(img, lang=OCR_LANGUAGES)
+            for img in images
         )
     except Exception as e:
-        logging.error(f"Erro no OCR fallback: {e}")
-        return ""
+        logging.error(f"OCR fallback também falhou: {e}")
+        return text
 
 class PyPDFStrategy:
     """Extrai com loader PyPDFLoader do LangChain."""
