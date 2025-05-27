@@ -36,3 +36,4 @@ prometheus_client
 tiktoken
 boto3
 requests
+pikepdf

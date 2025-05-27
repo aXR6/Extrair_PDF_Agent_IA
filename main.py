@@ -9,7 +9,6 @@ import shutil
 import time
 import logging
 from tqdm import tqdm
-from utils import repair_pdf 
 
 # Garante que o diretório do script esteja no path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -20,8 +19,10 @@ from config import (
     OLLAMA_EMBEDDING_MODEL, SERAFIM_EMBEDDING_MODEL,
     MINILM_L6_V2, MINILM_L12_V2, MPNET_EMBEDDING_MODEL,
     DIM_MXBAI, DIM_SERAFIM, DIM_MINILM_L6, DIM_MINIL12, DIM_MPNET,
-    SBERT_MODEL_NAME, OCR_THRESHOLD, validate_config
+    SBERT_MODEL_NAME, OCR_THRESHOLD, OCR_LANGUAGES,
+    validate_config
 )
+
 from adaptive_chunker import get_sbert_model
 from extractors import extract_text
 from extractors import (
