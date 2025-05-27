@@ -33,7 +33,7 @@ from extractors import (
     TikaStrategy, PyMuPDF4LLMStrategy
 )
 from pg_storage import save_to_postgres
-from utils import setup_logging, is_valid_file, build_record
+from utils import setup_logging, is_valid_file, build_record, repair_pdf
 
 # Valida env e inicializa logs/modelo
 validate_config()
