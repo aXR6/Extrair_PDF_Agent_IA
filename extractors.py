@@ -31,6 +31,27 @@ def is_extraction_allowed(path: str) -> bool:
         logging.error(f"Erro ao verificar permissão: {e}")
         return False
 
+def extract_text(path: str, strategy: str, languages: str) -> str:
+    """
+    Tenta extrair texto pela estratégia escolhida e, se vier vazio
+    ou lançar qualquer erro, faz o fallback robusto (PyMuPDF→PDFMiner→Tika→Plumber→OCR).
+    """
+    text = ""
+    # 1) Estratégia primária
+    try:
+        loader = STRATEGY_INSTANCES[strategy]
+        text = loader.extract(path)
+    except Exception:
+        logging.warning(f"Loader {strategy} falhou em {path}")
+        text = ""
+
+    # 2) Se não veio texto decente, dispara fallback multi-camada
+    if not text or len(text.strip()) < OCR_THRESHOLD:
+        from extractors import fallback_ocr
+        text = fallback_ocr(path, threshold=OCR_THRESHOLD)
+
+    return text
+
 def fallback_ocr(path: str, threshold: int = 100) -> str:
     """
     Fluxo de extração robusto:
