@@ -113,12 +113,14 @@ Este projeto fornece um pipeline completo para processamento de documentos PDF e
      ```
 5. **Instale dependências de sistema:**
      ```bash
-     sudo apt update
-     sudo apt install -y \
-         poppler-utils \  # Para pdf2image/pdfinfo
-         tesseract-ocr tesseract-ocr-eng tesseract-ocr-por \  # OCR
-         default-jre \    # Java para Apache Tika
-         libmagic1         # Para python-magic (unstructured)
+        sudo apt update
+        sudo apt install -y \
+        poppler-utils   \  # pdftoppm / pdfinfo para pdf2image/pdfminer  
+        tesseract-ocr   \  # engine OCR  
+        tesseract-ocr-eng tesseract-ocr-por \
+        default-jre     \  # para Apache Tika  
+        libmagic1       \  # usado por unstructured  
+        imagemagick     \  # em alguns setups o python-magic precisa dele  
      ```
 6. **Prepare o banco PostgreSQL:**
      - Configure `listen_addresses = '*'` em `postgresql.conf` e ajuste `pg_hba.conf` para acesso remoto.
