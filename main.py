@@ -6,206 +6,163 @@ import time
 import logging
 from tqdm import tqdm
 
-# Garante que o diretório do script esteja no path
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# garante imports locais
+sys.path.insert(0, os.path.dirname(__file__))
 
 from config import (
-    PG_HOST, PG_PORT, PG_USER, PG_PASSWORD,
-    PG_SCHEMAS, PG_SCHEMA_DEFAULT,
+    PG_SCHEMA_DEFAULT, PG_SCHEMAS,
     OLLAMA_EMBEDDING_MODEL, SERAFIM_EMBEDDING_MODEL,
     MINILM_L6_V2, MINILM_L12_V2, MPNET_EMBEDDING_MODEL,
     DIM_MXBAI, DIM_SERAFIM, DIM_MINILM_L6, DIM_MINIL12, DIM_MPNET,
-    SBERT_MODEL_NAME, OCR_THRESHOLD, validate_config
+    OCR_THRESHOLD, validate_config
 )
 from extractors import extract_text
-from extractors import (
-    is_extraction_allowed,
-    fallback_ocr,
-    PyPDFStrategy, PDFMinerStrategy,
-    PDFMinerLowLevelStrategy, UnstructuredStrategy,
-    OCRStrategy, PDFPlumberStrategy,
-    TikaStrategy, PyMuPDF4LLMStrategy
-)
-from pg_storage import save_to_postgres
 from utils import setup_logging, is_valid_file, build_record, repair_pdf
+from pg_storage import save_to_postgres
 from adaptive_chunker import get_sbert_model
 
-# Valida env, inicializa logs e pré-carrega SBERT
+# valida e inicializa
 validate_config()
 setup_logging()
-get_sbert_model(SBERT_MODEL_NAME)
+get_sbert_model()
 
-# Lista de estratégias disponíveis para o menu (mesmos keys de STRATEGIES_MAP)
+# opções de menus
 STRATEGY_OPTIONS = [
-    'pypdf', 'pdfminer', 'pdfminer-low', 'unstructured',
-    'ocr', 'plumber', 'tika', 'pymupdf4llm'
+    "pypdf", "pdfminer", "pdfminer-low", "unstructured",
+    "ocr", "plumber", "tika", "pymupdf4llm"
 ]
-
-# Mapeamento de modelos e dimensões para o menu
 EMBED_MODELS = {
-    '1': OLLAMA_EMBEDDING_MODEL,
-    '2': SERAFIM_EMBEDDING_MODEL,
-    '3': MINILM_L6_V2,
-    '4': MINILM_L12_V2,
-    '5': MPNET_EMBEDDING_MODEL
+    "1": OLLAMA_EMBEDDING_MODEL,
+    "2": SERAFIM_EMBEDDING_MODEL,
+    "3": MINILM_L6_V2,
+    "4": MINILM_L12_V2,
+    "5": MPNET_EMBEDDING_MODEL
 }
 DIMENSIONS = {
-    '1': DIM_MXBAI,
-    '2': DIM_SERAFIM,
-    '3': DIM_MINILM_L6,
-    '4': DIM_MINIL12,
-    '5': DIM_MPNET
+    "1": DIM_MXBAI,
+    "2": DIM_SERAFIM,
+    "3": DIM_MINILM_L6,
+    "4": DIM_MINIL12,
+    "5": DIM_MPNET
 }
 
-# Helpers
-
 def clear_screen():
-    os.system('clear')
-
+    os.system("clear")
 
 def select_schema():
-    print("\n*** Selecione Schema PostgreSQL ***")
-    for idx, schema in enumerate(PG_SCHEMAS, start=1):
-        default = " (default)" if schema == PG_SCHEMA_DEFAULT else ""
-        print(f"{idx} - {schema}{default}")
-    choice = input("Escolha [default]: ").strip()
-    return PG_SCHEMAS[int(choice)-1] if choice.isdigit() and 1 <= int(choice) <= len(PG_SCHEMAS) else PG_SCHEMA_DEFAULT
-
+    print("\\n*** Selecione schema ***")
+    for i,s in enumerate(PG_SCHEMAS,1):
+        mark = " (default)" if s==PG_SCHEMA_DEFAULT else ""
+        print(f"{i} - {s}{mark}")
+    c = input("Escolha [default]: ").strip()
+    return PG_SCHEMAS[int(c)-1] if c.isdigit() and 1<=int(c)<=len(PG_SCHEMAS) else PG_SCHEMA_DEFAULT
 
 def select_strategy():
-    print("\n*** Selecione Estratégia de Extração ***")
-    for idx, key in enumerate(STRATEGY_OPTIONS, start=1):
-        print(f"{idx} - {key}")
-    choice = input("Escolha [ocr]: ").strip()
-    if choice.isdigit() and 1 <= int(choice) <= len(STRATEGY_OPTIONS):
-        return STRATEGY_OPTIONS[int(choice)-1]
-    return 'ocr'
-
+    print("\\n*** Selecione estratégia ***")
+    for i,k in enumerate(STRATEGY_OPTIONS,1):
+        print(f"{i} - {k}")
+    c = input("Escolha [ocr]: ").strip()
+    return STRATEGY_OPTIONS[int(c)-1] if c.isdigit() and 1<=int(c)<=len(STRATEGY_OPTIONS) else "ocr"
 
 def select_embedding():
-    print("\n*** Selecione Modelo de Embedding ***")
-    for k, name in EMBED_MODELS.items():
-        print(f"{k} - {name}")
-    choice = input("Escolha [1]: ").strip()
-    return EMBED_MODELS.get(choice, OLLAMA_EMBEDDING_MODEL)
-
+    print("\\n*** Selecione modelo de embedding ***")
+    for k,n in EMBED_MODELS.items():
+        print(f"{k} - {n}")
+    return EMBED_MODELS.get(input("Escolha [1]: ").strip(), OLLAMA_EMBEDDING_MODEL)
 
 def select_dimension():
-    print("\n*** Selecione Dimensão de Embedding ***")
-    for k, d in DIMENSIONS.items():
+    print("\\n*** Selecione dimensão ***")
+    for k,d in DIMENSIONS.items():
         print(f"{k} - {d}")
-    choice = input("Escolha [1]: ").strip()
-    return DIMENSIONS.get(choice, DIM_MXBAI)
+    return DIMENSIONS.get(input("Escolha [1]: ").strip(), DIM_MXBAI)
 
+def process_file(path, strat, schema, model, dim, stats):
+    # normaliza nome
+    p = os.path.normpath(path.strip())
+    base, ext = os.path.splitext(p)
+    p2 = base.rstrip() + ext
+    if p2!=p:
+        try: os.rename(p,p2)
+        except: pass
+    p = p2
 
-def process_file(path, strategy, schema, model, dim, results, verbose=False):
-    # Normalize e remove espaços antes da extensão
-    orig = path.strip()
-    norm = os.path.normpath(orig)
-    base, ext = os.path.splitext(norm)
-    cleaned = base.rstrip() + ext
-    if cleaned != norm:
-        try:
-            os.rename(norm, cleaned)
-            logging.info(f"Renomeado arquivo: '{norm}' → '{cleaned}'")
-            path = cleaned
-        except Exception as e:
-            logging.warning(f"Falha ao renomear '{norm}' → '{cleaned}': {e}")
-            path = norm
-    else:
-        path = norm
+    if not is_valid_file(p):
+        stats['errors']+=1
+        return
 
-    fn = os.path.basename(path)
+    # reparo + extração
+    text = extract_text(p, strat)
+    if not text or len(text.strip())<OCR_THRESHOLD:
+        logging.error(f"Não extraído: {os.path.basename(p)}")
+        stats['errors']+=1
+        return
 
-    # Repara PDF se precisar
-    path = repair_pdf(path)
-
-    if not is_valid_file(path):
-        results['errors'] += 1
-        return False
-
-    # Extrai texto com pipeline unificado
-    text = extract_text(path, strategy)
-    if not text or len(text.strip()) < OCR_THRESHOLD:
-        logging.error(f"Não foi possível extrair texto de {fn}. Pulando.")
-        results['errors'] += 1
-        return False
-
-    rec = build_record(path, text)
+    rec = build_record(p, text)
     try:
-        save_to_postgres(fn, rec['text'], rec['info'], model, dim, schema)
-        results['processed'] += 1
-        return True
+        save_to_postgres(os.path.basename(p), rec['text'], rec['info'], model, dim, schema)
+        stats['processed']+=1
     except Exception as e:
-        logging.error(f"Erro salvando {fn}: {e}")
-        results['errors'] += 1
-        return False
-
+        logging.error(f"Erro ao salvar {p}: {e}")
+        stats['errors']+=1
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--verbose', action='store_true', help='Logs detalhados')
+    parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args()
 
     schema = PG_SCHEMA_DEFAULT
-    strategy = 'ocr'
-    model = OLLAMA_EMBEDDING_MODEL
-    dim = DIM_MXBAI
-    results = {'processed': 0, 'errors': 0}
+    strat  = "ocr"
+    model  = OLLAMA_EMBEDDING_MODEL
+    dim    = DIM_MXBAI
+    stats  = {"processed":0,"errors":0}
 
     while True:
         clear_screen()
         print("*** Menu Principal ***")
         print(f"1 - Schema         (atual: {schema})")
-        print(f"2 - Estratégia     (atual: {strategy})")
-        print(f"3 - Embedding Model(atual: {model})")
+        print(f"2 - Estratégia     (atual: {strat})")
+        print(f"3 - Embedding      (atual: {model})")
         print(f"4 - Dimensão       (atual: {dim})")
         print("5 - Processar Arquivo")
         print("6 - Processar Pasta")
         print("0 - Sair")
-        choice = input("> ").strip()
+        c = input("> ").strip()
 
-        if choice == '0':
+        if c=="0":
             break
-        elif choice == '1':
+        elif c=="1":
             schema = select_schema()
-        elif choice == '2':
-            strategy = select_strategy()
-        elif choice == '3':
+        elif c=="2":
+            strat = select_strategy()
+        elif c=="3":
             model = select_embedding()
-        elif choice == '4':
+        elif c=="4":
             dim = select_dimension()
-        elif choice == '5':
-            path = input("Caminho do arquivo: ").strip()
+        elif c=="5":
+            f = input("Arquivo: ").strip()
             start = time.perf_counter()
-            process_file(path, strategy, schema, model, dim, results, args.verbose)
-            elapsed = time.perf_counter() - start
-            print(f"-> Processado em {elapsed:.2f}s (sucesso: {results['processed']}, erros: {results['errors']})")
-            input("\nENTER para voltar…")
-        elif choice == '6':
-            folder = input("Pasta: ").strip()
-            all_files = [os.path.join(dp, fn) for dp, _, fns in os.walk(folder) for fn in fns if fn.lower().endswith(('.pdf', '.docx'))]
-            total = len(all_files)
-            print(f"Total de arquivos a processar: {total}")
+            process_file(f, strat, schema, model, dim, stats)
+            dt = time.perf_counter()-start
+            print(f"→ {dt:.2f}s  Processados: {stats['processed']}  Erros: {stats['errors']}")
+            input("ENTER…")
+        elif c=="6":
+            d = input("Pasta: ").strip()
+            files = [os.path.join(r,f) for r,_,fs in os.walk(d) for f in fs if f.lower().endswith((".pdf",".docx"))]
+            print(f"Total: {len(files)}")
             start = time.perf_counter()
-            pbar = tqdm(all_files, desc="Processando", unit="arquivo")
+            pbar = tqdm(files, unit="arquivo")
             for path in pbar:
-                process_file(path, strategy, schema, model, dim, results, args.verbose)
-                pbar.set_postfix(processados=results['processed'], erros=results['errors'])
+                process_file(path, strat, schema, model, dim, stats)
+                pbar.set_postfix(proc=stats['processed'], err=stats['errors'])
             pbar.close()
-            elapsed = time.perf_counter() - start
-            print("\n=== Resumo ===")
-            print(f"Total processados: {results['processed']}")
-            print(f"Total de erros: {results['errors']}")
-            print(f"Tempo total: {elapsed:.2f}s")
-            input("\nENTER para voltar…")
+            dt = time.perf_counter()-start
+            print(f"=== Resumo ===\nProcessados: {stats['processed']}\nErros: {stats['errors']}\nTempo: {dt:.2f}s")
+            input("ENTER…")
         else:
-            input("Opção inválida. ENTER…")
+            input("Opção inválida…")
 
     clear_screen()
-    print("\n=== Encerrado ===")
-    print(f"Processados: {results['processed']}")
-    print(f"Erros: {results['errors']}")
+    print(f"Processados: {stats['processed']}\nErros: {stats['errors']}")
 
-if __name__ == '__main__':
+if __name__=="__main__":
     main()
