@@ -1,13 +1,14 @@
-# utils.py
 import logging
 import os
 import re
-from typing import List
-import fitz
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from config import CHUNK_SIZE, CHUNK_OVERLAP, SEPARATORS
 import tempfile
+from typing import List
+
+import fitz
 import pikepdf
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+
+from config import CHUNK_SIZE, CHUNK_OVERLAP, SEPARATORS
 
 def setup_logging():
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -23,31 +24,11 @@ def build_record(path: str, text: str) -> dict:
         info = {}
     return {'text': text, 'info': info, 'version': '2.16.105'}
 
-def repair_pdf(path: str) -> str:
-    """
-    Tenta consertar o PDF com pikepdf/QPDF e retorna o caminho
-    para um arquivo temporário reparado. Se falhar, retorna o path original.
-    """
-    try:
-        tmp = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
-        with pikepdf.Pdf.open(path) as pdf:
-            pdf.save(tmp.name)
-        return tmp.name
-    except Exception as e:
-        logging.warning(f"Falha ao reparar PDF {path}: {e}")
-        return path
-
 def is_valid_file(path: str) -> bool:
     if not os.path.isfile(path) or not path.lower().endswith(('.pdf', '.docx')):
         logging.error(f"Arquivo inválido: {path}")
         return False
     return True
-
-def generate_report(processed: List[str], errors: List[str]):
-    logging.info(f"Processados: {len(processed)}")
-    logging.warning(f"Erros: {len(errors)}")
-    for e in errors:
-        logging.warning(e)
 
 def filter_paragraphs(text: str) -> List[str]:
     """
@@ -58,16 +39,13 @@ def filter_paragraphs(text: str) -> List[str]:
     """
     paras = [p.strip() for p in text.split('\n\n') if p.strip()]
     result = []
-    toc_pattern = re.compile(r'^\d+(?:\.\d+)*\s+.+\s+\d+$')  # ex: '1.2 Seção ................ 17'
+    toc_pattern = re.compile(r'^\d+(?:\.\d+)*\s+.+\s+\d+$')
     for p in paras:
         low = p.lower()
-        # descarta sumário explícito
         if re.search(r'\b(sum[aá]rio|índice|table of contents|contents?)\b', low):
             continue
-        # descarta linhas tipo ToC com número de página
         if toc_pattern.match(p):
             continue
-        # descarta textos curtos
         if len(p) < 50:
             continue
         result.append(p)
@@ -89,3 +67,17 @@ def chunk_text(text: str, metadata: dict) -> List[str]:
             sub = splitter.split_text(p)
             chunks.extend(sub or [p])
     return chunks
+
+def repair_pdf(path: str) -> str:
+    """
+    Tenta consertar o PDF com pikepdf/QPDF e retorna o caminho
+    para um arquivo temporário reparado. Se falhar, retorna o path original.
+    """
+    try:
+        tmp = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
+        with pikepdf.Pdf.open(path) as pdf:
+            pdf.save(tmp.name)
+        return tmp.name
+    except Exception as e:
+        logging.warning(f"Falha ao reparar PDF {path}: {e}")
+        return path
