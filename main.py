@@ -51,29 +51,35 @@ def clear_screen(): os.system("clear")
 def process_file(path, strategy, schema, model, dim, results, verbose=False):
     """
     Processa um arquivo PDF/DOCX:
-      1) Repara PDF corrompido (pikepdf)
-      2) Normaliza path
+      1) Limpa e normaliza path (remove espaços antes da extensão)
+      2) Repara PDF corrompido (pikepdf + Ghostscript)
       3) Extrai texto (pipeline unificado)
       4) Persiste no PostgreSQL
     """
-    # 1) Reparar e normalizar
-    path = repair_pdf(path.strip())
+    # 1) Clean e normaliza path
+    original = path
+    path = original.strip()
     path = os.path.normpath(path)
+    base, ext = os.path.splitext(path)
+    path = base.rstrip() + ext  # remove espaços antes da extensão
+
+    # 2) Tenta reparar o PDF
+    path = repair_pdf(path)
     fn = os.path.basename(path)
 
-    # 2) Valida arquivo
+    # 3) Valida arquivo
     if not is_valid_file(path):
         results['errors'] += 1
         return False
 
-    # 3) Extrai texto via pipeline unificado
+    # 4) Extrai texto via pipeline unificado
     text = extract_text(path, strategy)
     if not text or len(text.strip()) < OCR_THRESHOLD:
         logging.error(f"Não foi possível extrair texto de {fn}. Pulando.")
         results['errors'] += 1
         return False
 
-    # 4) Persistência
+    # 5) Persistência
     rec = build_record(path, text)
     try:
         save_to_postgres(fn, rec['text'], rec['info'], model, dim, schema)
@@ -87,9 +93,9 @@ def process_file(path, strategy, schema, model, dim, results, verbose=False):
 
 def select_schema():
     print("\n*** Selecione Schema PostgreSQL ***")
-    for idx, schema in enumerate(PG_SCHEMAS, start=1):
-        default = " (default)" if schema == PG_SCHEMA_DEFAULT else ""
-        print(f"{idx} - {schema}{default}")
+    for idx, sch in enumerate(PG_SCHEMAS, start=1):
+        default = " (default)" if sch == PG_SCHEMA_DEFAULT else ""
+        print(f"{idx} - {sch}{default}")
     choice = input("Escolha [default]: ").strip()
     return PG_SCHEMAS[int(choice)-1] if choice.isdigit() and 1 <= int(choice) <= len(PG_SCHEMAS) else PG_SCHEMA_DEFAULT
 
