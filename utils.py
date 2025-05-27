@@ -2,7 +2,6 @@ import logging
 import os
 import re
 import tempfile
-import shutil
 import subprocess
 from typing import List
 
@@ -15,7 +14,6 @@ from config import CHUNK_SIZE, CHUNK_OVERLAP, SEPARATORS
 def setup_logging():
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-
 def build_record(path: str, text: str) -> dict:
     try:
         doc = fitz.open(path)
@@ -27,20 +25,15 @@ def build_record(path: str, text: str) -> dict:
         info = {}
     return {'text': text, 'info': info, 'version': '2.16.105'}
 
-
 def is_valid_file(path: str) -> bool:
     if not os.path.isfile(path) or not path.lower().endswith(('.pdf', '.docx')):
         logging.error(f"Arquivo inválido: {path}")
         return False
     return True
 
-
 def filter_paragraphs(text: str) -> List[str]:
     """
-    Descarta:
-      - Sumário / índice (palavras-chave)
-      - Linhas estilo ToC: '1.2 Título .................. 17'
-      - Trechos muito curtos (<50 chars)
+    Descarta sumários, índices e trechos curtos (<50 chars).
     """
     paras = [p.strip() for p in text.split('\n\n') if p.strip()]
     result = []
@@ -55,7 +48,6 @@ def filter_paragraphs(text: str) -> List[str]:
             continue
         result.append(p)
     return result
-
 
 def chunk_text(text: str, metadata: dict) -> List[str]:
     paras = filter_paragraphs(text)
@@ -74,16 +66,27 @@ def chunk_text(text: str, metadata: dict) -> List[str]:
             chunks.extend(sub or [p])
     return chunks
 
-
 def repair_pdf(path: str) -> str:
     """
-    Tenta consertar o PDF em duas etapas:
-      1) pikepdf/QPDF
-      2) Ghostscript
-    Retorna o caminho para um arquivo temporário reparado, ou
-    o path original em caso de falha.
+    Tenta consertar o PDF em múltiplas etapas:
+      1) mutool clean (-d) → reconstrói XREF/Trailer :contentReference[oaicite:4]{index=4}
+      2) pikepdf (QPDF) → regrava o PDF
+      3) Ghostscript → reescreve em nível de dispositivos
+      4) fallback para original se todas falharem
+    Retorna o caminho para um temp. file reparado, ou o original.
     """
-    # etapa 1: pikepdf
+    # 1) mutool clean
+    try:
+        tmp0 = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
+        subprocess.run(
+            ["mutool", "clean", "-d", path, tmp0.name],
+            check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        )
+        return tmp0.name
+    except Exception as e:
+        logging.warning(f"mutool clean falhou em '{path}': {e}")
+
+    # 2) pikepdf/QPDF
     try:
         tmp1 = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
         with pikepdf.Pdf.open(path) as pdf:
@@ -92,24 +95,19 @@ def repair_pdf(path: str) -> str:
     except Exception as e:
         logging.warning(f"pikepdf falhou em '{path}': {e}")
 
-    # etapa 2: Ghostscript
+    # 3) Ghostscript
     try:
         tmp2 = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
         cmd = [
-            "gs",
-            "-q",                   # silencioso
-            "-dNOPAUSE",
-            "-dBATCH",
-            "-sDEVICE=pdfwrite",
-            "-dCompatibilityLevel=1.4",
+            "gs", "-q", "-dNOPAUSE", "-dBATCH",
+            "-sDEVICE=pdfwrite", "-dCompatibilityLevel=1.4",
             "-dPDFSETTINGS=/prepress",
-            f"-sOutputFile={tmp2.name}",
-            path
+            f"-sOutputFile={tmp2.name}", path
         ]
         subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return tmp2.name
     except Exception as e:
         logging.warning(f"Ghostscript falhou em '{path}': {e}")
 
-    # se tudo falhar, retorna original
+    # 4) tudo falhou → retorna original
     return path
