@@ -1,11 +1,7 @@
-# =====================================================================
-# main.py
-# =====================================================================
 #!/usr/bin/env python3
 import os
 import sys
 import argparse
-import shutil
 import time
 import logging
 from tqdm import tqdm
@@ -19,39 +15,20 @@ from config import (
     OLLAMA_EMBEDDING_MODEL, SERAFIM_EMBEDDING_MODEL,
     MINILM_L6_V2, MINILM_L12_V2, MPNET_EMBEDDING_MODEL,
     DIM_MXBAI, DIM_SERAFIM, DIM_MINILM_L6, DIM_MINIL12, DIM_MPNET,
-    SBERT_MODEL_NAME, OCR_THRESHOLD, OCR_LANGUAGES,
+    SBERT_MODEL_NAME, OCR_THRESHOLD,
     validate_config
 )
-
 from adaptive_chunker import get_sbert_model
-from extractors import extract_text
-from extractors import (
-    is_extraction_allowed, fallback_ocr,
-    PyPDFStrategy, PDFMinerStrategy,
-    PDFMinerLowLevelStrategy, UnstructuredStrategy,
-    OCRStrategy, PDFPlumberStrategy,
-    TikaStrategy, PyMuPDF4LLMStrategy
-)
+from extractors import extract_text, STRATEGIES_MAP
 from pg_storage import save_to_postgres
 from utils import setup_logging, is_valid_file, build_record, repair_pdf
 
-# Valida env e inicializa logs/modelo
+# Valida env, inicializa logs e pré-carrega SBERT
 validate_config()
 setup_logging()
 get_sbert_model(SBERT_MODEL_NAME)
 
-# Estratégias de extração
-STRATEGIES = {
-    "pypdf":        PyPDFStrategy(),
-    "pdfminer":     PDFMinerStrategy(),
-    "pdfminer-low": PDFMinerLowLevelStrategy(),
-    "unstructured": UnstructuredStrategy(),
-    "ocr":          OCRStrategy(threshold=OCR_THRESHOLD),
-    "plumber":      PDFPlumberStrategy(),
-    "tika":         TikaStrategy(),
-    "pymupdf4llm":  PyMuPDF4LLMStrategy(),
-}
-# Mapeamento embeddings e dimensões
+# Mapeamento de modelos e dimensões de embedding
 EMBED_MODELS = {
     "1": OLLAMA_EMBEDDING_MODEL,
     "2": SERAFIM_EMBEDDING_MODEL,
@@ -70,29 +47,33 @@ DIMENSIONS = {
 # Helpers
 def clear_screen(): os.system("clear")
 
-def process_file(path, strategy, schema, model, dim, results, verbose=False):
-    # 1) Tenta reparar PDF corrompido
-    path = path.strip()
-    path = os.path.normpath(path)
-    path = repair_pdf(path)
-    
-    path = path.strip()
-    path = os.path.normpath(path)
-    fn   = os.path.basename(path)
 
+def process_file(path, strategy, schema, model, dim, results, verbose=False):
+    """
+    Processa um arquivo PDF/DOCX:
+      1) Repara PDF corrompido (pikepdf)
+      2) Normaliza path
+      3) Extrai texto (pipeline unificado)
+      4) Persiste no PostgreSQL
+    """
+    # 1) Reparar e normalizar
+    path = repair_pdf(path.strip())
+    path = os.path.normpath(path)
+    fn = os.path.basename(path)
+
+    # 2) Valida arquivo
     if not is_valid_file(path):
         results['errors'] += 1
         return False
 
-    # Extrai texto via pipeline unificado
-    text = extract_text(path, strategy, OCR_LANGUAGES)
-
-    if not text or not text.strip():
+    # 3) Extrai texto via pipeline unificado
+    text = extract_text(path, strategy)
+    if not text or len(text.strip()) < OCR_THRESHOLD:
         logging.error(f"Não foi possível extrair texto de {fn}. Pulando.")
         results['errors'] += 1
         return False
 
-    # Persiste no Postgres…
+    # 4) Persistência
     rec = build_record(path, text)
     try:
         save_to_postgres(fn, rec['text'], rec['info'], model, dim, schema)
@@ -102,6 +83,7 @@ def process_file(path, strategy, schema, model, dim, results, verbose=False):
         logging.error(f"Erro salvando {fn}: {e}")
         results['errors'] += 1
         return False
+
 
 def select_schema():
     print("\n*** Selecione Schema PostgreSQL ***")
@@ -114,23 +96,25 @@ def select_schema():
 
 def select_strategy():
     print("\n*** Selecione Estratégia de Extração ***")
-    for idx, key in enumerate(STRATEGIES.keys(), start=1):
+    opts = list(STRATEGIES_MAP.keys())
+    for idx, key in enumerate(opts, start=1):
         print(f"{idx} - {key}")
     choice = input("Escolha [ocr]: ").strip()
-    opts = list(STRATEGIES.keys())
     return opts[int(choice)-1] if choice.isdigit() and 1 <= int(choice) <= len(opts) else 'ocr'
 
 
 def select_embedding():
     print("\n*** Selecione Modelo de Embedding ***")
-    for k, name in EMBED_MODELS.items(): print(f"{k} - {name}")
+    for k, name in EMBED_MODELS.items():
+        print(f"{k} - {name}")
     choice = input("Escolha [1]: ").strip()
     return EMBED_MODELS.get(choice, OLLAMA_EMBEDDING_MODEL)
 
 
 def select_dimension():
     print("\n*** Selecione Dimensão de Embedding ***")
-    for k, d in DIMENSIONS.items(): print(f"{k} - {d}")
+    for k, d in DIMENSIONS.items():
+        print(f"{k} - {d}")
     choice = input("Escolha [1]: ").strip()
     return DIMENSIONS.get(choice, DIM_MXBAI)
 
@@ -177,7 +161,8 @@ def main():
             input("\nENTER para voltar…")
         elif choice == '6':
             folder = input("Pasta: ").strip()
-            all_files = [os.path.join(dp, fn) for dp, _, fns in os.walk(folder) for fn in fns if fn.lower().endswith(('.pdf', '.docx'))]
+            all_files = [os.path.join(dp, fn) for dp, _, fns in os.walk(folder)
+                         for fn in fns if fn.lower().endswith(('.pdf', '.docx'))]
             total = len(all_files)
             print(f"Total de arquivos a processar: {total}")
             start = time.perf_counter()
