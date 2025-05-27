@@ -74,17 +74,36 @@ def process_file(path, strategy, schema, model, dim, results, verbose=False):
     if not is_valid_file(path):
         results['errors'] += 1
         return False
+
+    text = ""
+    # 1) Tenta sua estratégia escolhida
     try:
-        text = fallback_ocr(path, OCR_THRESHOLD) if not is_extraction_allowed(path) else STRATEGIES[strategy].extract(path)
+        text = STRATEGIES[strategy].extract(path)
+    except Exception as e:
+        logging.warning(f"Estratégia {strategy} falhou em {fn}: {e}")
+
+    # 2) Se texto for vazio ou muito curto, cai no fallback geral
+    if not text or len(text.strip()) < OCR_THRESHOLD:
+        if verbose:
+            logging.info(f"Fallback geral para {fn}")
+        text = fallback_ocr(path, threshold=OCR_THRESHOLD)
+
+    # 3) Se ainda vazio, log e erro
+    if not text or len(text.strip()) == 0:
+        logging.error(f"Não foi possível extrair texto de {fn}. Pulando.")
+        results['errors'] += 1
+        return False
+
+    # 4) Prossegue com build_record e armazenamento
+    try:
         rec = build_record(path, text)
         save_to_postgres(fn, rec['text'], rec['info'], model, dim, schema)
         results['processed'] += 1
         return True
     except Exception as e:
-        logging.error(f"Erro em {path}: {e}")
+        logging.error(f"Erro salvando {fn}: {e}")
         results['errors'] += 1
         return False
-
 
 def select_schema():
     print("\n*** Selecione Schema PostgreSQL ***")
