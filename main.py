@@ -9,6 +9,7 @@ import shutil
 import time
 import logging
 from tqdm import tqdm
+from utils import repair_pdf 
 
 # Garante que o diretório do script esteja no path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -69,6 +70,11 @@ DIMENSIONS = {
 def clear_screen(): os.system("clear")
 
 def process_file(path, strategy, schema, model, dim, results, verbose=False):
+    # 1) Tenta reparar PDF corrompido
+    path = path.strip()
+    path = os.path.normpath(path)
+    path = repair_pdf(path)
+    
     path = path.strip()
     path = os.path.normpath(path)
     fn   = os.path.basename(path)

@@ -6,6 +6,8 @@ from typing import List
 import fitz
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from config import CHUNK_SIZE, CHUNK_OVERLAP, SEPARATORS
+import tempfile
+import pikepdf
 
 def setup_logging():
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -20,6 +22,20 @@ def build_record(path: str, text: str) -> dict:
         logging.error(f"Erro metadados: {e}")
         info = {}
     return {'text': text, 'info': info, 'version': '2.16.105'}
+
+def repair_pdf(path: str) -> str:
+    """
+    Tenta consertar o PDF com pikepdf/QPDF e retorna o caminho
+    para um arquivo temporário reparado. Se falhar, retorna o path original.
+    """
+    try:
+        tmp = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
+        with pikepdf.Pdf.open(path) as pdf:
+            pdf.save(tmp.name)
+        return tmp.name
+    except Exception as e:
+        logging.warning(f"Falha ao reparar PDF {path}: {e}")
+        return path
 
 def is_valid_file(path: str) -> bool:
     if not os.path.isfile(path) or not path.lower().endswith(('.pdf', '.docx')):
