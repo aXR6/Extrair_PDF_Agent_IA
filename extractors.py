@@ -1,4 +1,3 @@
-#extractors.py
 import fitz
 from PyPDF2 import PdfReader
 from pdf2image import convert_from_path
@@ -12,7 +11,7 @@ from langchain_community.document_loaders import (
     PDFMinerLoader,
     UnstructuredWordDocumentLoader
 )
-from config import OCR_LANGUAGES
+from config import OCR_LANGUAGES, OCR_THRESHOLD
 import pymupdf4llm  # Nova dependência para extração em Markdown
 
 # ---------------------------------------------------------------------------
@@ -31,28 +30,8 @@ def is_extraction_allowed(path: str) -> bool:
         logging.error(f"Erro ao verificar permissão: {e}")
         return False
 
-def extract_text(path: str, strategy: str, languages: str) -> str:
-    """
-    Tenta extrair texto pela estratégia escolhida e, se vier vazio
-    ou lançar qualquer erro, faz o fallback robusto (PyMuPDF→PDFMiner→Tika→Plumber→OCR).
-    """
-    text = ""
-    # 1) Estratégia primária
-    try:
-        loader = STRATEGY_INSTANCES[strategy]
-        text = loader.extract(path)
-    except Exception:
-        logging.warning(f"Loader {strategy} falhou em {path}")
-        text = ""
 
-    # 2) Se não veio texto decente, dispara fallback multi-camada
-    if not text or len(text.strip()) < OCR_THRESHOLD:
-        from extractors import fallback_ocr
-        text = fallback_ocr(path, threshold=OCR_THRESHOLD)
-
-    return text
-
-def fallback_ocr(path: str, threshold: int = 100) -> str:
+def fallback_ocr(path: str, threshold: int = OCR_THRESHOLD) -> str:
     """
     Fluxo de extração robusto:
       1) PyMuPDF
@@ -103,13 +82,15 @@ def fallback_ocr(path: str, threshold: int = 100) -> str:
     # 5) OCR final
     try:
         images = convert_from_path(path, dpi=300)
-        return "\n\n".join(
+        ocr_text = "\n\n".join(
             pytesseract.image_to_string(img, lang=OCR_LANGUAGES)
             for img in images
         )
+        return ocr_text
     except Exception as e:
         logging.error(f"OCR fallback também falhou: {e}")
         return text
+
 
 class PyPDFStrategy:
     """Extrai com loader PyPDFLoader do LangChain."""
@@ -118,12 +99,14 @@ class PyPDFStrategy:
         docs = loader.load()
         return "\n".join(d.page_content for d in docs)
 
+
 class PDFMinerStrategy:
     """Extrai com loader PDFMinerLoader do LangChain."""
     def extract(self, path: str) -> str:
         loader = PDFMinerLoader(path)
         docs = loader.load()
         return "\n".join(d.page_content for d in docs)
+
 
 class PDFMinerLowLevelStrategy:
     """Extrai usando pdfminer.six de baixo nível (extract_text)."""
@@ -134,6 +117,7 @@ class PDFMinerLowLevelStrategy:
             logging.error(f"Erro no PDFMiner low-level: {e}")
             return ""
 
+
 class UnstructuredStrategy:
     """Extrai documentos .docx com UnstructuredWordDocumentLoader."""
     def extract(self, path: str) -> str:
@@ -141,9 +125,10 @@ class UnstructuredStrategy:
         docs = loader.load()
         return "\n".join(d.page_content for d in docs)
 
+
 class OCRStrategy:
     """Extrai texto e cai para OCR se híbrido com threshold."""
-    def __init__(self, threshold: int = 100):
+    def __init__(self, threshold: int = OCR_THRESHOLD):
         self.threshold = threshold
 
     def extract(self, path: str) -> str:
@@ -161,6 +146,7 @@ class OCRStrategy:
             logging.error(f"Erro no OCRStrategy: {e}")
             return ""
 
+
 class PDFPlumberStrategy:
     """Extrai texto e tabelas usando PDFPlumber."""
     def extract(self, path: str) -> str:
@@ -172,21 +158,23 @@ class PDFPlumberStrategy:
                     text.append(page_text)
         return "\n".join(text)
 
+
 class TikaStrategy:
     """Extrai conteúdo via Apache Tika."""
     def extract(self, path: str) -> str:
         parsed = parser.from_file(path)
         return parsed.get("content", "") or ""
 
+
 class PyMuPDF4LLMStrategy:
     """Extrai PDF em formato Markdown usando PyMuPDF4LLM."""
     def extract(self, path: str) -> str:
         try:
-            # Converte PDF em Markdown compatível com GitHub
             return pymupdf4llm.to_markdown(path)
         except Exception as e:
             logging.error(f"Erro no PyMuPDF4LLMStrategy: {e}")
             return ""
+
 
 # ---------------------------------------------------------------------------
 # METADATA BUILDER
