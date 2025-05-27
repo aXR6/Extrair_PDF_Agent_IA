@@ -1,3 +1,4 @@
+#requirements.txt
 # === Gestão de variáveis de ambiente ===
 python-dotenv
 

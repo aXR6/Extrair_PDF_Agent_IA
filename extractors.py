@@ -2,6 +2,7 @@
 import logging
 import subprocess
 import tempfile
+import shutil
 
 import fitz
 import pdfplumber
@@ -106,7 +107,7 @@ def extract_text(path: str, strategy: str) -> str:
          a) PDFMiner low-level
          b) Tika
          c) PDFPlumber
-         d) pdftotext (Poppler)
+         d) pdftotext (poppler-utils ou biblioteca pdftotext)
          e) OCR (pytesseract)
     """
     # 1) tenta reparar
@@ -152,18 +153,31 @@ def extract_text(path: str, strategy: str) -> str:
     except Exception:
         pass
 
-    # 3d) pdftotext (Poppler) — **NOSSO NOVO PASSO**  
-    try:
-        tmp = tempfile.NamedTemporaryFile(suffix=".txt", delete=False)
-        subprocess.run(
-            ["pdftotext", "-layout", path, tmp.name],
-            check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-        )
-        txt = open(tmp.name, encoding="utf-8", errors="ignore").read()
-        if len(txt.strip()) > OCR_THRESHOLD:
-            return txt
-    except Exception as e:
-        logging.debug(f"pdftotext falhou: {e}")
+    # 3d) pdftotext (Poppler) — fallback externo
+    #   se poppler-utils estiver instalado:
+    if shutil.which("pdftotext"):
+        try:
+            tmp = tempfile.NamedTemporaryFile(suffix=".txt", delete=False)
+            subprocess.run(
+                ["pdftotext", "-layout", path, tmp.name],
+                check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+            )
+            txt = open(tmp.name, encoding="utf-8", errors="ignore").read()
+            if len(txt.strip()) > OCR_THRESHOLD:
+                return txt
+        except Exception as e:
+            logging.debug(f"pdftotext falhou: {e}")
+    else:
+        #  ou tente a lib Python pdftotext
+        try:
+            import pdftotext
+            with open(path, "rb") as f:
+                pdf = pdftotext.PDF(f)
+                txt = "\n\n".join(pdf)
+            if len(txt.strip()) > OCR_THRESHOLD:
+                return txt
+        except Exception as e:
+            logging.debug(f"pdftotext (pip) falhou: {e}")
 
     # 3e) OCR final por imagem
     try:
