@@ -2,6 +2,8 @@ import logging
 import os
 import re
 import tempfile
+import shutil
+import subprocess
 from typing import List
 
 import fitz
@@ -12,6 +14,7 @@ from config import CHUNK_SIZE, CHUNK_OVERLAP, SEPARATORS
 
 def setup_logging():
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
 
 def build_record(path: str, text: str) -> dict:
     try:
@@ -24,11 +27,13 @@ def build_record(path: str, text: str) -> dict:
         info = {}
     return {'text': text, 'info': info, 'version': '2.16.105'}
 
+
 def is_valid_file(path: str) -> bool:
     if not os.path.isfile(path) or not path.lower().endswith(('.pdf', '.docx')):
         logging.error(f"Arquivo inválido: {path}")
         return False
     return True
+
 
 def filter_paragraphs(text: str) -> List[str]:
     """
@@ -51,6 +56,7 @@ def filter_paragraphs(text: str) -> List[str]:
         result.append(p)
     return result
 
+
 def chunk_text(text: str, metadata: dict) -> List[str]:
     paras = filter_paragraphs(text)
     chunks: List[str] = []
@@ -67,6 +73,7 @@ def chunk_text(text: str, metadata: dict) -> List[str]:
             sub = splitter.split_text(p)
             chunks.extend(sub or [p])
     return chunks
+
 
 def repair_pdf(path: str) -> str:
     """
