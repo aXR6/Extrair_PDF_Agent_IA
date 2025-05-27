@@ -34,16 +34,17 @@ def is_extraction_allowed(path: str) -> bool:
 def fallback_ocr(path: str, threshold: int = 100) -> str:
     """
     Fluxo de extração robusto:
-      1) PyMuPDF
-      2) PDFMiner low-level
-      3) Apache Tika
-      4) PDFPlumber
-      5) OCR (pytesseract + pdf2image)
+    1) PyMuPDF
+    2) PDFMiner low-level
+    3) Apache Tika
+    4) PDFPlumber
+    5) OCR (pytesseract + pdf2image)
     """
     text = ""
 
     # 1) PyMuPDF
     try:
+        import fitz
         doc = fitz.open(path)
         text = "\n".join(page.get_text() for page in doc)
         doc.close()
@@ -52,8 +53,9 @@ def fallback_ocr(path: str, threshold: int = 100) -> str:
     except Exception:
         logging.debug("PyMuPDF falhou, tentando PDFMiner…")
 
-    # 2) PDFMiner Low-level
+    # 2) PDFMiner low-level
     try:
+        from pdfminer.high_level import extract_text as pdfminer_extract_text
         text = pdfminer_extract_text(path)
         if len(text.strip()) > threshold:
             return text
@@ -62,6 +64,7 @@ def fallback_ocr(path: str, threshold: int = 100) -> str:
 
     # 3) Apache Tika
     try:
+        from tika import parser
         parsed = parser.from_file(path)
         tika_text = parsed.get("content", "") or ""
         if len(tika_text.strip()) > threshold:
@@ -71,6 +74,7 @@ def fallback_ocr(path: str, threshold: int = 100) -> str:
 
     # 4) PDFPlumber
     try:
+        import pdfplumber
         with pdfplumber.open(path) as pdf:
             pages = [p.extract_text() or "" for p in pdf.pages]
         plumber_text = "\n".join(pages)
@@ -81,6 +85,8 @@ def fallback_ocr(path: str, threshold: int = 100) -> str:
 
     # 5) OCR final
     try:
+        from pdf2image import convert_from_path
+        import pytesseract
         images = convert_from_path(path, dpi=300)
         ocr_text = "\n\n".join(
             pytesseract.image_to_string(img, lang=OCR_LANGUAGES)
@@ -89,7 +95,7 @@ def fallback_ocr(path: str, threshold: int = 100) -> str:
         return ocr_text
     except Exception as e:
         logging.error(f"OCR fallback também falhou: {e}")
-        return text  # devolve o que tiver, mesmo vazio
+        return text
 
 class PyPDFStrategy:
     """Extrai com loader PyPDFLoader do LangChain."""
