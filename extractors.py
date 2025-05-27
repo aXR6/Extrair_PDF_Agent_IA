@@ -123,39 +123,57 @@ def fallback_ocr(path: str, threshold: int = OCR_THRESHOLD) -> str:
     """
     Fluxo de extração robusto:
       1) PyMuPDF
-      2) PDFMiner
+      2) PDFMiner low-level
       3) Apache Tika
       4) PDFPlumber
-      5) Ghostscript (recompactação)
-      6) pdftotext (poppler)
-      7) OCR (Tesseract)
+      5) pdftotext (poppler-utils)
+      6) OCR (pytesseract + pdf2image)
     """
     text = ""
 
-    # … passos 1–4 (igual ao que você já tem) …
-
-    # 5) Ghostscript (já implementado) …
+    # 1) PyMuPDF
     try:
-        tmp2 = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
-        cmd = [
-            "gs","-q","-dNOPAUSE","-dBATCH",
-            "-sDEVICE=pdfwrite","-dCompatibilityLevel=1.4",
-            "-dPDFSETTINGS=/prepress",
-            f"-sOutputFile={tmp2.name}", path
-        ]
-        subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        path = tmp2.name
+        doc = fitz.open(path)
+        text = "\n".join(page.get_text() for page in doc)
+        doc.close()
+        if len(text.strip()) > threshold:
+            return text
     except Exception:
-        logging.debug("Ghostscript falhou, tentando pdftotext…")
+        logging.debug("PyMuPDF falhou, tentando PDFMiner…")
 
-    # 6) pdftotext (poppler-utils)
+    # 2) PDFMiner low-level
+    try:
+        text = pdfminer_extract_text(path)
+        if len(text.strip()) > threshold:
+            return text
+    except Exception:
+        logging.debug("PDFMiner falhou, tentando Tika…")
+
+    # 3) Apache Tika
+    try:
+        parsed = parser.from_file(path)
+        tika_text = parsed.get("content", "") or ""
+        if len(tika_text.strip()) > threshold:
+            return tika_text
+    except Exception as e:
+        logging.warning(f"Tika falhou: {e}")
+
+    # 4) PDFPlumber
+    try:
+        with pdfplumber.open(path) as pdf:
+            pages = [p.extract_text() or "" for p in pdf.pages]
+        plumber_text = "\n".join(pages)
+        if len(plumber_text.strip()) > threshold:
+            return plumber_text
+    except Exception:
+        logging.debug("PDFPlumber falhou, tentando pdftotext…")
+
+    # 5) pdftotext (poppler-utils)
     try:
         tmp_txt = tempfile.NamedTemporaryFile(suffix=".txt", delete=False)
         subprocess.run(
             ["pdftotext", "-layout", path, tmp_txt.name],
-            check=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL
+            check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
         )
         pdftxt = open(tmp_txt.name, encoding="utf-8", errors="ignore").read()
         if len(pdftxt.strip()) > threshold:
@@ -163,7 +181,7 @@ def fallback_ocr(path: str, threshold: int = OCR_THRESHOLD) -> str:
     except Exception as e:
         logging.debug(f"pdftotext falhou: {e}")
 
-    # 7) OCR final
+    # 6) OCR final
     try:
         images = convert_from_path(path, dpi=300)
         return "\n\n".join(
