@@ -1,7 +1,7 @@
 # Ignorar as subpastas old/ e teste/
-old/
 teste/
 bk/
+Estavel
 
 # Ignorar listar.sh e .env em qualquer lugar
 listar.sh
