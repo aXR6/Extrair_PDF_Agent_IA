@@ -5,31 +5,34 @@ CREATE EXTENSION IF NOT EXISTS vector;     -- pgvector
 CREATE EXTENSION IF NOT EXISTS pg_trgm;    -- trigramas
 
 /*==============================================================================
-  0.1) Dicionários Snowball para PT e EN
+  0.1) Limpeza e recriação de FTS multilíngue
+     — primeiro drop da configuração, depois dos dicionários
 ==============================================================================*/
+-- 0.1.1) Remover configuração que depende dos dicionários
+DROP TEXT SEARCH CONFIGURATION IF EXISTS public.pt_en;
+
+-- 0.1.2) Remover dicionários (agora sem dependência)
 DROP TEXT SEARCH DICTIONARY IF EXISTS public.pt_stem;
+DROP TEXT SEARCH DICTIONARY IF EXISTS public.eng_stem;
+
+-- 0.1.3) Criar dicionários Snowball para PT e EN
 CREATE TEXT SEARCH DICTIONARY public.pt_stem (
   TEMPLATE = snowball,
   LANGUAGE = portuguese
 );
-
-DROP TEXT SEARCH DICTIONARY IF EXISTS public.eng_stem;
 CREATE TEXT SEARCH DICTIONARY public.eng_stem (
   TEMPLATE = snowball,
   LANGUAGE = english
 );
 
-/*==============================================================================
-  0.2) Configuração FTS multilíngue (pt + en)
-==============================================================================*/
-DROP TEXT SEARCH CONFIGURATION IF EXISTS public.pt_en;
+-- 0.1.4) Recriar configuração multilíngue
 CREATE TEXT SEARCH CONFIGURATION public.pt_en ( COPY = pg_catalog.simple );
 ALTER TEXT SEARCH CONFIGURATION public.pt_en
   ALTER MAPPING FOR asciiword, asciihword, hword_asciipart
   WITH public.pt_stem, public.eng_stem, simple;
 
 /*==============================================================================
-  0.3) Função de trigger para atualizar tsv_full
+  0.2) Função de trigger para atualizar tsv_full
 ==============================================================================*/
 CREATE OR REPLACE FUNCTION public.update_tsv_full() RETURNS trigger AS $$
 BEGIN
@@ -163,7 +166,7 @@ CREATE INDEX IF NOT EXISTS idx_docs1536_parent
 /*==============================================================================
   2) Funções UNIFICADAS de busca (delegam para a tabela correta)
 ==============================================================================*/
--- 2.1 Hybrid
+-- Hybrid
 CREATE OR REPLACE FUNCTION public.match_documents_hybrid(
   query_embedding VECTOR,
   query_text      TEXT      DEFAULT NULL,
@@ -185,26 +188,24 @@ DECLARE
   sql TEXT;
 BEGIN
   IF dim NOT IN (384,768,1024,1536) THEN
-    RAISE EXCEPTION 'Dimensão de vetor % não suportada', dim;
+    RAISE EXCEPTION 'Vetordimensão % não suportada', dim;
   END IF;
   sql := format($f$
     WITH knn_pool AS (
-      SELECT d.metadata->>'__parent' AS parent,
-             d.id, d.content, d.metadata,
-             d.embedding <=> $1 AS dist,
-             d.tsv_full
-        FROM %I AS d
-       WHERE d.metadata @> $4
-       ORDER BY d.embedding <=> $1
+      SELECT metadata->>'__parent' AS parent, id, content, metadata,
+             embedding <=> $1 AS dist, tsv_full
+        FROM %I
+       WHERE metadata @> $4
+       ORDER BY embedding <=> $1
        LIMIT $3 * $8
     ), knn_ts AS (
-      SELECT kp.*,
+      SELECT *,
              CASE
                WHEN $2 IS NULL THEN NULL
                WHEN $2 ~ '^".*"$' THEN phraseto_tsquery('public.pt_en', trim(both '"' FROM $2))
                ELSE websearch_to_tsquery('public.pt_en', $2)
              END AS tsq
-        FROM knn_pool AS kp
+        FROM knn_pool
     ), scored AS (
       SELECT id, content, metadata,
              1 - dist AS sim,
@@ -217,7 +218,7 @@ BEGIN
         FROM knn_ts
     ), combined AS (
       SELECT id, content, metadata,
-             CASE WHEN lex_rank > 0 THEN $5*sim + $6*lex_rank ELSE sim END AS score
+             CASE WHEN lex_rank>0 THEN $5*sim+$6*lex_rank ELSE sim END AS score
         FROM scored
     )
     SELECT * FROM combined
@@ -231,7 +232,7 @@ BEGIN
 END;
 $$;
 
--- 2.2 Precise
+-- Precise
 CREATE OR REPLACE FUNCTION public.match_documents_precise(
   query_embedding VECTOR,
   query_text      TEXT      DEFAULT NULL,
@@ -254,26 +255,25 @@ DECLARE
   sql TEXT;
 BEGIN
   IF dim NOT IN (384,768,1024,1536) THEN
-    RAISE EXCEPTION 'Dimensão de vetor % não suportada', dim;
+    RAISE EXCEPTION 'Vetordimensão % não suportada', dim;
   END IF;
   sql := format($f$
     WITH knn_pool AS (
       SELECT id, content, metadata,
-             embedding <#> $1 AS cos_dist,
-             tsv_full
+             embedding <#> $1 AS cos_dist, tsv_full
         FROM %I
        WHERE metadata @> $4
          AND embedding <#> $1 <= 1.0 - $7
        ORDER BY embedding <#> $1
        LIMIT $3 * $9
     ), knn_ts AS (
-      SELECT kp.*,
+      SELECT *,
              CASE
                WHEN $2 IS NULL THEN NULL
                WHEN $2 ~ '^".*"$' THEN phraseto_tsquery('public.pt_en', trim(both '"' FROM $2))
                ELSE websearch_to_tsquery('public.pt_en', $2)
              END AS tsq
-        FROM knn_pool AS kp
+        FROM knn_pool
     ), scored AS (
       SELECT id, content, metadata,
              (1 - cos_dist) AS sim,
@@ -286,7 +286,7 @@ BEGIN
         FROM knn_ts
     ), combined AS (
       SELECT id, content, metadata,
-             CASE WHEN lex_rank > 0 THEN $5*sim + $6*lex_rank ELSE sim END AS score
+             CASE WHEN lex_rank>0 THEN $5*sim+$6*lex_rank ELSE sim END AS score
         FROM scored
     )
     SELECT * FROM combined
