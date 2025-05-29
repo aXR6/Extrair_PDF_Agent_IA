@@ -7,7 +7,8 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm;    -- trigramas
 /*------------------------------------------------------------------------------
   Configuração FTS (português + inglês)
 ------------------------------------------------------------------------------*/
-CREATE TEXT SEARCH CONFIGURATION IF NOT EXISTS public.pt_en ( COPY = simple );
+DROP TEXT SEARCH CONFIGURATION IF EXISTS public.pt_en;
+CREATE TEXT SEARCH CONFIGURATION public.pt_en ( COPY = pg_catalog.simple );
 ALTER TEXT SEARCH CONFIGURATION public.pt_en
   ALTER MAPPING FOR asciiword, asciihword, hword_asciipart
   WITH portuguese, english, simple;
@@ -30,18 +31,16 @@ $$ LANGUAGE plpgsql;
 -- ---------- 384 --------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS public.documents_384 (
   id         BIGSERIAL PRIMARY KEY,
-  content    text        NOT NULL,
-  metadata   jsonb       NOT NULL,
-  embedding  vector(384) NOT NULL,
-  tsv_full   tsvector,
-  created_at timestamptz DEFAULT now()
+  content    TEXT        NOT NULL,
+  metadata   JSONB       NOT NULL,
+  embedding  VECTOR(384) NOT NULL,
+  tsv_full   TSVECTOR,
+  created_at TIMESTAMPTZ DEFAULT now()
 );
--- Trigger
 DROP TRIGGER IF EXISTS tsv_full_trigger ON public.documents_384;
 CREATE TRIGGER tsv_full_trigger
   BEFORE INSERT OR UPDATE ON public.documents_384
   FOR EACH ROW EXECUTE FUNCTION public.update_tsv_full();
--- Índices vetor + texto + metadados
 CREATE INDEX IF NOT EXISTS idx_docs384_emb_hnsw
   ON public.documents_384 USING hnsw (embedding vector_cosine_ops)
   WITH (m = 16, ef_construction = 200);
@@ -66,7 +65,7 @@ CREATE INDEX IF NOT EXISTS idx_docs384_parent
 CREATE TABLE IF NOT EXISTS public.documents_768
   (LIKE public.documents_384 INCLUDING ALL);
 ALTER TABLE public.documents_768
-  ALTER COLUMN embedding TYPE vector(768);
+  ALTER COLUMN embedding TYPE VECTOR(768);
 DROP TRIGGER IF EXISTS tsv_full_trigger ON public.documents_768;
 CREATE TRIGGER tsv_full_trigger
   BEFORE INSERT OR UPDATE ON public.documents_768
@@ -95,7 +94,7 @@ CREATE INDEX IF NOT EXISTS idx_docs768_parent
 CREATE TABLE IF NOT EXISTS public.documents_1024
   (LIKE public.documents_384 INCLUDING ALL);
 ALTER TABLE public.documents_1024
-  ALTER COLUMN embedding TYPE vector(1024);
+  ALTER COLUMN embedding TYPE VECTOR(1024);
 DROP TRIGGER IF EXISTS tsv_full_trigger ON public.documents_1024;
 CREATE TRIGGER tsv_full_trigger
   BEFORE INSERT OR UPDATE ON public.documents_1024
@@ -124,7 +123,7 @@ CREATE INDEX IF NOT EXISTS idx_docs1024_parent
 CREATE TABLE IF NOT EXISTS public.documents_1536
   (LIKE public.documents_384 INCLUDING ALL);
 ALTER TABLE public.documents_1536
-  ALTER COLUMN embedding TYPE vector(1536);
+  ALTER COLUMN embedding TYPE VECTOR(1536);
 DROP TRIGGER IF EXISTS tsv_full_trigger ON public.documents_1536;
 CREATE TRIGGER tsv_full_trigger
   BEFORE INSERT OR UPDATE ON public.documents_1536
@@ -152,31 +151,30 @@ CREATE INDEX IF NOT EXISTS idx_docs1536_parent
 /*==============================================================================
   2) Funções UNIFICADAS de busca (delegam para a tabela correta)
 ==============================================================================*/
--- 2.1  Hybrid ---------------------------------------------------------------
+-- 2.1 Hybrid ---------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.match_documents_hybrid(
-  query_embedding vector,
-  query_text      text      DEFAULT NULL,
-  match_count     int       DEFAULT 5,
-  filter          jsonb     DEFAULT '{}'::jsonb,
-  weight_vec      float     DEFAULT 0.6,
-  weight_lex      float     DEFAULT 0.4,
-  min_score       float     DEFAULT 0.1,
-  pool_multiplier int       DEFAULT 10
+  query_embedding VECTOR,
+  query_text      TEXT      DEFAULT NULL,
+  match_count     INT       DEFAULT 5,
+  filter          JSONB     DEFAULT '{}'::jsonb,
+  weight_vec      FLOAT     DEFAULT 0.6,
+  weight_lex      FLOAT     DEFAULT 0.4,
+  min_score       FLOAT     DEFAULT 0.1,
+  pool_multiplier INT       DEFAULT 10
 ) RETURNS TABLE (
-  id       bigint,
-  content  text,
-  metadata jsonb,
-  score    float
+  id       BIGINT,
+  content  TEXT,
+  metadata JSONB,
+  score    FLOAT
 ) LANGUAGE plpgsql AS $$
 DECLARE
-  dim        int := vector_dims(query_embedding);
-  tbl        text := format('public.documents_%s', dim);
-  sql        text;
+  dim INT := vector_dims(query_embedding);
+  tbl TEXT := format('public.documents_%s', dim);
+  sql TEXT;
 BEGIN
   IF dim NOT IN (384,768,1024,1536) THEN
     RAISE EXCEPTION 'Dimensão de vetor % não suportada', dim;
   END IF;
-
   sql := format($f$
     WITH knn_pool AS (
       SELECT d.metadata ->> '__parent' AS parent,
@@ -190,8 +188,7 @@ BEGIN
     ), knn_ts AS (
       SELECT kp.*,
              CASE
-               WHEN $2 IS NULL
-                 THEN NULL
+               WHEN $2 IS NULL THEN NULL
                WHEN $2 ~ '^".*"$'
                  THEN phraseto_tsquery('public.pt_en', trim(both '"' from $2))
                ELSE websearch_to_tsquery('public.pt_en', $2)
@@ -211,8 +208,8 @@ BEGIN
         FROM knn_ts
     ), combined AS (
       SELECT id, content, metadata,
-             CASE WHEN lex_rank>0
-                  THEN $5*sim + $6*lex_rank
+             CASE WHEN lex_rank > 0
+                  THEN $5 * sim + $6 * lex_rank
                   ELSE sim END AS score
         FROM scored
     )
@@ -221,39 +218,37 @@ BEGIN
      ORDER BY score DESC
      LIMIT $3;
   $f$, tbl);
-
   RETURN QUERY EXECUTE sql
     USING query_embedding, query_text, match_count, filter,
           weight_vec, weight_lex, min_score, pool_multiplier;
 END;
 $$;
 
--- 2.2  Precise --------------------------------------------------------------
+-- 2.2 Precise --------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.match_documents_precise(
-  query_embedding vector,
-  query_text      text      DEFAULT NULL,
-  match_count     int       DEFAULT 5,
-  filter          jsonb     DEFAULT '{}'::jsonb,
-  weight_vec      float     DEFAULT 0.6,
-  weight_lex      float     DEFAULT 0.4,
-  min_cos_sim     float     DEFAULT 0.80,
-  min_score       float     DEFAULT 0.50,
-  pool_multiplier int       DEFAULT 10
+  query_embedding VECTOR,
+  query_text      TEXT      DEFAULT NULL,
+  match_count     INT       DEFAULT 5,
+  filter          JSONB     DEFAULT '{}'::jsonb,
+  weight_vec      FLOAT     DEFAULT 0.6,
+  weight_lex      FLOAT     DEFAULT 0.4,
+  min_cos_sim     FLOAT     DEFAULT 0.80,
+  min_score       FLOAT     DEFAULT 0.50,
+  pool_multiplier INT       DEFAULT 10
 ) RETURNS TABLE (
-  id       bigint,
-  content  text,
-  metadata jsonb,
-  score    float
+  id       BIGINT,
+  content  TEXT,
+  metadata JSONB,
+  score    FLOAT
 ) LANGUAGE plpgsql AS $$
 DECLARE
-  dim        int := vector_dims(query_embedding);
-  tbl        text := format('public.documents_%s', dim);
-  sql        text;
+  dim INT := vector_dims(query_embedding);
+  tbl TEXT := format('public.documents_%s', dim);
+  sql TEXT;
 BEGIN
   IF dim NOT IN (384,768,1024,1536) THEN
     RAISE EXCEPTION 'Dimensão de vetor % não suportada', dim;
   END IF;
-
   sql := format($f$
     WITH knn_pool AS (
       SELECT id, content, metadata,
@@ -267,8 +262,7 @@ BEGIN
     ), knn_ts AS (
       SELECT kp.*,
              CASE
-               WHEN $2 IS NULL
-                 THEN NULL
+               WHEN $2 IS NULL THEN NULL
                WHEN $2 ~ '^".*"$'
                  THEN phraseto_tsquery('public.pt_en', trim(both '"' from $2))
                ELSE websearch_to_tsquery('public.pt_en', $2)
@@ -288,8 +282,8 @@ BEGIN
         FROM knn_ts
     ), combined AS (
       SELECT id, content, metadata,
-             CASE WHEN lex_rank>0
-                  THEN $5*sim + $6*lex_rank
+             CASE WHEN lex_rank > 0
+                  THEN $5 * sim + $6 * lex_rank
                   ELSE sim END AS score
         FROM scored
     )
@@ -298,7 +292,6 @@ BEGIN
      ORDER BY score DESC
      LIMIT $3;
   $f$, tbl);
-
   RETURN QUERY EXECUTE sql
     USING query_embedding, query_text, match_count, filter,
           weight_vec, weight_lex, min_cos_sim, min_score, pool_multiplier;
