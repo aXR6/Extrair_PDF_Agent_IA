@@ -1,3 +1,4 @@
+# main.py
 #!/usr/bin/env python3
 import os
 import sys
@@ -48,6 +49,7 @@ DIMENSIONS = {
 def clear_screen():
     os.system("clear")
 
+
 def select_strategy():
     print("\n*** Selecione Estratégia ***")
     for i, k in enumerate(STRATEGY_OPTIONS, 1):
@@ -55,11 +57,13 @@ def select_strategy():
     c = input("Escolha [ocr]: ").strip()
     return STRATEGY_OPTIONS[int(c)-1] if c.isdigit() and 1 <= int(c) <= len(STRATEGY_OPTIONS) else "ocr"
 
+
 def select_embedding():
     print("\n*** Selecione Embedding ***")
     for k, n in EMBED_MODELS.items():
         print(f"{k} - {n}")
     return EMBED_MODELS.get(input("Escolha [1]: ").strip(), OLLAMA_EMBEDDING_MODEL)
+
 
 def select_dimension():
     print("\n*** Selecione Dimensão ***")
@@ -67,11 +71,9 @@ def select_dimension():
         print(f"{k} - {d}")
     return DIMENSIONS.get(input("Escolha [1]: ").strip(), DIM_MXBAI)
 
+
 def process_file(path, strat, model, dim, stats):
     p = os.path.normpath(path.strip())
-    # Detecta extensão e força loader 'unstructured' para .docx
-    if p.lower().endswith('.docx'):
-        strat = 'unstructured'
     base, ext = os.path.splitext(p)
     p2 = base.rstrip() + ext
     if p2 != p:
@@ -93,8 +95,7 @@ def process_file(path, strat, model, dim, stats):
     rec = build_record(p2, text)
     try:
         save_to_postgres(
-            os.path.basename(p2),
-            rec['text'], rec['info'],
+            os.path.basename(p2), rec['text'], rec['info'],
             model, dim
         )
         stats['processed'] += 1
@@ -142,10 +143,10 @@ def main():
         elif c == "5":
             d = input("Pasta: ").strip()
             files = [
-                os.path.join(r, f)
-                for r, _, fs in os.walk(d)
-                for f in fs
-                if f.lower().endswith((".pdf", ".docx"))
+                os.path.join(root, fname)
+                for root, _, files_ in os.walk(d)
+                for fname in files_
+                if fname.lower().endswith((".pdf", ".docx", ".png", ".jpg", ".jpeg", ".tiff"))
             ]
             print(f"Total: {len(files)}")
             start = time.perf_counter()
@@ -162,6 +163,7 @@ def main():
 
     clear_screen()
     print(f"Processados: {stats['processed']}  Erros: {stats['errors']}")
+
 
 if __name__ == "__main__":
     main()

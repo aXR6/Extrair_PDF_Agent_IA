@@ -14,6 +14,7 @@ from langchain_community.document_loaders import (
     PDFMinerLoader,
     UnstructuredWordDocumentLoader
 )
+from PIL import Image
 
 from config import OCR_LANGUAGES, OCR_THRESHOLD
 from utils import repair_pdf
@@ -99,6 +100,16 @@ class PyMuPDF4LLMStrategy:
             return ""
 
 
+class ImageOCRStrategy:
+    def extract(self, path: str) -> str:
+        try:
+            img = Image.open(path)
+            return pytesseract.image_to_string(img, lang=OCR_LANGUAGES)
+        except Exception as e:
+            logging.error(f"Erro ImageOCRStrategy: {e}")
+            return ""
+
+
 # ---------------------------------------------------------------------------
 # Mapa de estratégias
 # ---------------------------------------------------------------------------
@@ -111,22 +122,25 @@ STRATEGIES_MAP = {
     "plumber": PDFPlumberStrategy(),
     "tika": TikaStrategy(),
     "pymupdf4llm": PyMuPDF4LLMStrategy(),
+    "image": ImageOCRStrategy(),
 }
 
 
 def extract_text(path: str, strategy: str) -> str:
     """
-    Extrai texto de arquivos PDF e DOCX com fallbacks:
+    Extrai texto de arquivos PDF, DOCX e imagens com fallbacks:
+      - IMG: usa ImageOCRStrategy
       - DOCX: sempre usa UnstructuredStrategy
       - PDF: tenta repair_pdf, estratégia primária, e cascata de fallbacks
     """
-    # DOCX --> Unstructured direto
-    if path.lower().endswith(".docx"):
-        try:
-            return STRATEGIES_MAP["unstructured"].extract(path)
-        except Exception as e:
-            logging.error(f"Erro UnstructuredStrategy: {e}")
-            return ""
+    lower = path.lower()
+    # Imagens --> OCR direto
+    if lower.endswith((".png", ".jpg", ".jpeg", ".tiff", ".bmp")):
+        return STRATEGIES_MAP["image"].extract(path)
+
+    # DOCX --> Unstructured
+    if lower.endswith(".docx"):
+        return STRATEGIES_MAP["unstructured"].extract(path)
 
     # PDF --> reparar antes
     path = repair_pdf(path)
@@ -145,8 +159,7 @@ def extract_text(path: str, strategy: str) -> str:
     if len(text.strip()) > OCR_THRESHOLD:
         return text
 
-    # 2) Fallbacks
-    # 2a) PDFMiner Low-Level
+    # 2) Fallbacks para PDF
     try:
         txt = pdfminer_extract_text(path)
         if len(txt.strip()) > OCR_THRESHOLD:
@@ -154,7 +167,6 @@ def extract_text(path: str, strategy: str) -> str:
     except Exception:
         pass
 
-    # 2b) Tika
     try:
         parsed = parser.from_file(path)
         txt = parsed.get("content", "") or ""
@@ -163,7 +175,6 @@ def extract_text(path: str, strategy: str) -> str:
     except Exception:
         pass
 
-    # 2c) PDFPlumber
     try:
         with pdfplumber.open(path) as pdf:
             txt = "\n".join(page.extract_text() or "" for page in pdf.pages)
@@ -172,32 +183,28 @@ def extract_text(path: str, strategy: str) -> str:
     except Exception:
         pass
 
-    # 2d) pdftotext externo
     if shutil.which("pdftotext"):
         try:
             tmp = tempfile.NamedTemporaryFile(suffix=".txt", delete=False)
-            subprocess.run(
-                ["pdftotext", "-layout", path, tmp.name],
-                check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-            )
+            subprocess.run([
+                "pdftotext", "-layout", path, tmp.name
+            ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             txt = open(tmp.name, encoding="utf-8", errors="ignore").read()
             if len(txt.strip()) > OCR_THRESHOLD:
                 return txt
         except Exception:
             pass
     else:
-        # Fallback pdftotext biblioteca
         try:
             import pdftotext
             with open(path, "rb") as f:
-                pdf = pdftotext.PDF(f)
-            txt = "\n\n".join(pdf)
+                pdf_doc = pdftotext.PDF(f)
+            txt = "\n\n".join(pdf_doc)
             if len(txt.strip()) > OCR_THRESHOLD:
                 return txt
         except Exception:
             pass
 
-    # 2e) OCR final via imagem
     try:
         from pdf2image import convert_from_path
         images = convert_from_path(path, dpi=300)

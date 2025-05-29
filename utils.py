@@ -1,4 +1,4 @@
-#utils.py
+# utils.py
 import logging
 import os
 import re
@@ -27,7 +27,9 @@ def build_record(path: str, text: str) -> dict:
     return {'text': text, 'info': info, 'version': '2.16.105'}
 
 def is_valid_file(path: str) -> bool:
-    if not os.path.isfile(path) or not path.lower().endswith(('.pdf', '.docx')):
+    # aceita PDF, DOCX e formatos de imagem
+    valid_ext = ('.pdf', '.docx', '.png', '.jpg', '.jpeg', '.tiff')
+    if not os.path.isfile(path) or not path.lower().endswith(valid_ext):
         logging.error(f"Arquivo inválido: {path}")
         return False
     return True
@@ -69,14 +71,10 @@ def chunk_text(text: str, metadata: dict) -> List[str]:
 
 def repair_pdf(path: str) -> str:
     """
-    Tenta consertar o PDF em múltiplas etapas:
-      1) mutool clean (-d) → reconstrói XREF/Trailer :contentReference[oaicite:4]{index=4}
-      2) pikepdf (QPDF) → regrava o PDF
-      3) Ghostscript → reescreve em nível de dispositivos
-      4) fallback para original se todas falharem
-    Retorna o caminho para um temp. file reparado, ou o original.
+    Tenta consertar o PDF em múltiplas etapas: mutool, pikepdf, Ghostscript.
+    Retorna o caminho para um arquivo temporário reparado ou o original.
     """
-    # 1) mutool clean
+    # mutool clean
     try:
         tmp0 = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
         subprocess.run(
@@ -87,7 +85,7 @@ def repair_pdf(path: str) -> str:
     except Exception as e:
         logging.warning(f"mutool clean falhou em '{path}': {e}")
 
-    # 2) pikepdf/QPDF
+    # pikepdf
     try:
         tmp1 = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
         with pikepdf.Pdf.open(path) as pdf:
@@ -96,7 +94,7 @@ def repair_pdf(path: str) -> str:
     except Exception as e:
         logging.warning(f"pikepdf falhou em '{path}': {e}")
 
-    # 3) Ghostscript
+    # Ghostscript
     try:
         tmp2 = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
         cmd = [
@@ -110,5 +108,5 @@ def repair_pdf(path: str) -> str:
     except Exception as e:
         logging.warning(f"Ghostscript falhou em '{path}': {e}")
 
-    # 4) tudo falhou → retorna original
+    # fallback: retorna original
     return path
