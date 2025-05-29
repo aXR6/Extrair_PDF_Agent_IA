@@ -1,10 +1,11 @@
+#pg_storage.py
 import os
 import logging
 import json
 import psycopg2
 import torch
 from adaptive_chunker import hierarchical_chunk, get_sbert_model
-from config import PG_HOST, PG_PORT, PG_USER, PG_PASSWORD, PG_DATABASE
+from config import PG_HOST, PG_PORT, PG_USER, PG_PASSWORD
 from metrics import record_metrics
 
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:128"
@@ -41,19 +42,13 @@ def generate_embedding(text: str, model_name: str, dim: int) -> list[float]:
     return vec
 
 @record_metrics
-def save_to_postgres(filename: str,
-                     text: str,
-                     metadata: dict,
-                     embedding_model: str,
-                     embedding_dim: int):
+def save_to_postgres(filename: str, text: str, metadata: dict,
+                     embedding_model: str, embedding_dim: int, schema: str):
     conn = None
     try:
         conn = psycopg2.connect(
-            host=PG_HOST,
-            port=PG_PORT,
-            dbname=PG_DATABASE,
-            user=PG_USER,
-            password=PG_PASSWORD
+            host=PG_HOST, port=PG_PORT, dbname=schema,
+            user=PG_USER, password=PG_PASSWORD
         )
         cur = conn.cursor()
 
@@ -61,25 +56,23 @@ def save_to_postgres(filename: str,
         inserted = []
         logging.info(f"'{filename}': {len(chunks)} chunks")
 
-        table = f"public.documents_{embedding_dim}"
-
         for idx, chunk in enumerate(chunks):
             clean = chunk.replace("\x00", "")
             emb = generate_embedding(clean, embedding_model, embedding_dim)
             rec = {**metadata, "__parent": filename, "__chunk_index": idx}
             cur.execute(
-                f"INSERT INTO {table} (content, metadata, embedding) "
-                f"VALUES (%s, %s::jsonb, %s) RETURNING id",
+                "INSERT INTO public.documents (content, metadata, embedding) "
+                "VALUES (%s, %s::jsonb, %s) RETURNING id",
                 (clean, json.dumps(rec, ensure_ascii=False), emb)
             )
             doc_id = cur.fetchone()[0]
             inserted.append({'id': doc_id, 'content': clean, 'metadata': rec})
 
         conn.commit()
-
-        # — re-ranking se houver __query
+        # — re-ranking RAG se __query presente
         query = metadata.get('__query', '')
         if query:
+            from adaptive_chunker import get_sbert_model
             from sentence_transformers import CrossEncoder
             ce = CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')
             pairs = [(query, r['content']) for r in inserted]
@@ -92,8 +85,6 @@ def save_to_postgres(filename: str,
 
     except Exception as e:
         logging.error(f"Erro saving to Postgres: {e}")
-        if conn:
-            conn.rollback()
+        if conn: conn.rollback()
     finally:
-        if conn:
-            conn.close()
+        if conn: conn.close()

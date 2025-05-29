@@ -1,0 +1,40 @@
+#requirements.txt
+# === Gestão de variáveis de ambiente ===
+python-dotenv
+
+# === Extração de texto / PDF / DOCX ===
+pytesseract
+pdf2image
+pdfminer.six
+PyPDF2
+PyMuPDF
+python-docx
+pdfplumber
+tika
+unstructured
+pymupdf4llm
+
+# === Chunking semântico / embeddings / NLP ===
+langchain
+langchain-community
+sentence-transformers>=2.2.0
+transformers>=4.30.0
+torch>=1.11.0
+scikit-learn
+nltk
+
+# === Banco de dados (PostgreSQL + pgvector) ===
+psycopg2-binary
+
+# === Progresso e logging ===
+tqdm
+rich
+
+# === Monitoramento ===
+prometheus_client
+
+# === Outras utilidades ===
+tiktoken
+boto3
+requests
+pikepdf
