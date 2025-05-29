@@ -5,9 +5,9 @@
 
 ## Visão Geral
 
-Este projeto oferece um pipeline completo para processamento de documentos PDF e DOCX, incluindo:
+Pipeline completo para processamento de documentos PDF, DOCX e imagens, incluindo:
 
-- **Extração de Texto:** Diversas estratégias (PyPDFLoader, PDFMinerLoader, PDFMiner Low-Level, Unstructured, OCR, PDFPlumber, Tika, PyMuPDF4LLM)
+- **Extração de Texto:** Diversas estratégias (PyPDFLoader, PDFMinerLoader, PDFMiner Low-Level, Unstructured, OCR para PDF, OCR para Imagens, PDFPlumber, Tika, PyMuPDF4LLM)
 - **Chunking Inteligente:** Filtragem de parágrafos, reconhecimento de headings, agrupamento, sliding window com overlap configurável e fallback para parágrafos longos
 - **Embeddings Vetoriais:** Suporte a múltiplos modelos (Ollama, Serafim-PT-IR, MPNet, MiniLM) com padding e truncation automáticos
 - **Indexação & Busca Híbrida (RAG):** PostgreSQL + pgvector usando tabelas dedicadas por dimensão
@@ -22,12 +22,14 @@ Este projeto oferece um pipeline completo para processamento de documentos PDF e
 ### 1. Extração de Texto
 
 - Detecção automática de PDFs criptografados com fallback para OCR (pytesseract + pdf2image)
+- Suporte a OCR direto em imagens (PNG, JPG, JPEG, TIFF, BMP)
 - **Estratégias Disponíveis:**
     - PyPDFLoader (LangChain)
     - PDFMinerLoader (LangChain)
     - PDFMiner Low-Level (pdfminer.six)
     - Unstructured (.docx)
-    - OCR Hybrid (pytesseract)
+    - OCR Hybrid para PDF (pytesseract)
+    - ImageOCR (PIL + pytesseract)
     - PDFPlumber
     - Apache Tika
     - PyMuPDF4LLM (Markdown)
@@ -84,7 +86,7 @@ Este projeto oferece um pipeline completo para processamento de documentos PDF e
     - Selecionar Estratégia de Extração
     - Selecionar Embedding Model
     - Selecionar Dimensão
-    - Processar Arquivo / Pasta
+    - Processar Arquivo / Pasta (inclui imagens)
     - Sair
 - **Flags:**
     - `--verbose`: logs detalhados
@@ -104,17 +106,17 @@ Este projeto oferece um pipeline completo para processamento de documentos PDF e
 ```bash
 sudo apt update
 sudo apt install -y \
-        poppler-utils \
-        mupdf-tools \
-        ghostscript \
-        qpdf \
-        tesseract-ocr \
-        tesseract-ocr-eng tesseract-ocr-por \
-        libpoppler-cpp-dev pkg-config \
-        imagemagick \
-        default-jre \
-        libmagic1 \
-        fontconfig
+    poppler-utils \
+    mupdf-tools \
+    ghostscript \
+    qpdf \
+    tesseract-ocr \
+    tesseract-ocr-eng tesseract-ocr-por \
+    libpoppler-cpp-dev pkg-config \
+    imagemagick \
+    default-jre \
+    libmagic1 \
+    fontconfig
 ```
 
 > Para `pdftotext` Python: `pip install pdftotext` após `libpoppler-cpp-dev pkg-config`.
@@ -125,23 +127,23 @@ sudo apt install -y \
 
 1. **Clone o repositório:**
 
-        ```bash
-        git clone https://github.com/seu_usuario/seu_projeto.git
-        cd seu_projeto
-        ```
+     ```bash
+     git clone https://github.com/seu_usuario/seu_projeto.git
+     cd seu_projeto
+     ```
 
 2. **Crie e ative um virtualenv:**
 
-        ```bash
-        python3 -m venv .venv
-        source .venv/bin/activate
-        ```
+     ```bash
+     python3 -m venv .venv
+     source .venv/bin/activate
+     ```
 
 3. **Instale dependências Python:**
 
-        ```bash
-        pip install -r requirements.txt
-        ```
+     ```bash
+     pip install -r requirements.txt
+     ```
 
 ---
 
@@ -192,10 +194,10 @@ CSV_INCR=vulnerabilidades_incrementais.csv
 
 1. **Instale extensões** dentro do banco:
 
-        ```sql
-        CREATE EXTENSION IF NOT EXISTS vector;
-        CREATE EXTENSION IF NOT EXISTS pg_trgm;
-        ```
+     ```sql
+     CREATE EXTENSION IF NOT EXISTS vector;
+     CREATE EXTENSION IF NOT EXISTS pg_trgm;
+     ```
 
 2. **Execute o DDL completo** para criar tabelas, dicionários, configuração FTS, triggers e índices conforme as instruções.
 
@@ -212,13 +214,10 @@ python3 main.py [--verbose]
 ## Changelog de Exemplo
 
 ```yaml
-feat: suportar tabelas por dimensão e FTS multilíngue
-- remover PG_SCHEMAS/PG_SCHEMA_DEFAULT do .env
-- adicionar PG_DATABASE
-- criar documentos_384, 768, 1024, 1536
-- unificar funções match_documents_hybrid & precise
-- configurar Snowball para pt_br e en
-- atualizar README.md
+feat: suportar tabelas por dimensão, FTS multilíngue e OCR de imagens
+- adicionar ImageOCRStrategy e detectar PNG/JPG/TIFF no extractors
+- atualizar is_valid_file e loop de pasta para imagens
+- README.md: incluir OCR de imagens nas funcionalidades e CLI
 ```
 
 ---
