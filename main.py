@@ -69,11 +69,16 @@ def select_dimension():
 
 def process_file(path, strat, model, dim, stats):
     p = os.path.normpath(path.strip())
+    # Detecta extensão e força loader 'unstructured' para .docx
+    if p.lower().endswith('.docx'):
+        strat = 'unstructured'
     base, ext = os.path.splitext(p)
     p2 = base.rstrip() + ext
     if p2 != p:
-        try: os.rename(p, p2)
-        except: pass
+        try:
+            os.rename(p, p2)
+        except Exception:
+            pass
 
     if not is_valid_file(p2):
         stats['errors'] += 1
@@ -89,15 +94,14 @@ def process_file(path, strat, model, dim, stats):
     try:
         save_to_postgres(
             os.path.basename(p2),
-            rec['text'],
-            rec['info'],
-            model,
-            dim
+            rec['text'], rec['info'],
+            model, dim
         )
         stats['processed'] += 1
     except Exception as e:
         logging.error(f"Erro salvando {p2}: {e}")
         stats['errors'] += 1
+
 
 def main():
     parser = argparse.ArgumentParser()
