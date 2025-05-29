@@ -5,37 +5,16 @@ CREATE EXTENSION IF NOT EXISTS vector;     -- pgvector
 CREATE EXTENSION IF NOT EXISTS pg_trgm;    -- trigramas
 
 /*------------------------------------------------------------------------------
-  0.1) Dicionários Snowball para PT e EN
-------------------------------------------------------------------------------*/
--- (necessário para suportar stemming em pt/en)
-DO $$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_ts_dict WHERE dictname = 'pt_stem') THEN
-    CREATE TEXT SEARCH DICTIONARY pt_stem (
-      TEMPLATE = snowball,
-      Language = portuguese
-    );
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_ts_dict WHERE dictname = 'eng_stem') THEN
-    CREATE TEXT SEARCH DICTIONARY eng_stem (
-      TEMPLATE = snowball,
-      Language = english
-    );
-  END IF;
-END;
-$$ LANGUAGE plpgsql;
-
-/*------------------------------------------------------------------------------
-  0.2) Configuração FTS multilíngue (pt + en)
+  Configuração FTS (português + inglês)
 ------------------------------------------------------------------------------*/
 DROP TEXT SEARCH CONFIGURATION IF EXISTS public.pt_en;
 CREATE TEXT SEARCH CONFIGURATION public.pt_en ( COPY = pg_catalog.simple );
 ALTER TEXT SEARCH CONFIGURATION public.pt_en
   ALTER MAPPING FOR asciiword, asciihword, hword_asciipart
-  WITH pt_stem, eng_stem, simple;
+  WITH portuguese, english, simple;
 
 /*------------------------------------------------------------------------------
-  0.3) Função de trigger para atualizar tsv_full
+  Função de atualização de tsv_full
 ------------------------------------------------------------------------------*/
 CREATE OR REPLACE FUNCTION public.update_tsv_full() RETURNS trigger AS $$
 BEGIN
@@ -47,9 +26,9 @@ END;
 $$ LANGUAGE plpgsql;
 
 /*==============================================================================
-  1) Tabelas por dimensão no schema public
+  1) Tabelas por dimensão no MESMO schema
 ==============================================================================*/
--- -------- documents_384 ------------------------------------------------------
+-- ---------- 384 --------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS public.documents_384 (
   id         BIGSERIAL PRIMARY KEY,
   content    TEXT        NOT NULL,
@@ -63,82 +42,116 @@ CREATE TRIGGER tsv_full_trigger
   BEFORE INSERT OR UPDATE ON public.documents_384
   FOR EACH ROW EXECUTE FUNCTION public.update_tsv_full();
 CREATE INDEX IF NOT EXISTS idx_docs384_emb_hnsw
-  ON public.documents_384 USING hnsw(embedding vector_cosine_ops)
-  WITH (m=16, ef_construction=200);
+  ON public.documents_384 USING hnsw (embedding vector_cosine_ops)
+  WITH (m = 16, ef_construction = 200);
 CREATE INDEX IF NOT EXISTS idx_docs384_emb_ivf
-  ON public.documents_384 USING ivfflat(embedding vector_cosine_ops)
-  WITH (lists=400);
-CREATE INDEX IF NOT EXISTS idx_docs384_tsv   ON public.documents_384 USING gin(tsv_full);
-CREATE INDEX IF NOT EXISTS idx_docs384_meta  ON public.documents_384 USING gin(metadata);
-CREATE INDEX IF NOT EXISTS idx_docs384_title ON public.documents_384 USING gin((metadata->>'title') gin_trgm_ops);
-CREATE INDEX IF NOT EXISTS idx_docs384_auth  ON public.documents_384 USING gin((metadata->>'author') gin_trgm_ops);
-CREATE INDEX IF NOT EXISTS idx_docs384_type  ON public.documents_384 USING gin((metadata->>'type') gin_trgm_ops) WHERE metadata ? 'type';
-CREATE INDEX IF NOT EXISTS idx_docs384_parent ON public.documents_384 USING gin((metadata->>'__parent') gin_trgm_ops);
+  ON public.documents_384 USING ivfflat (embedding vector_cosine_ops)
+  WITH (lists = 400);
+CREATE INDEX IF NOT EXISTS idx_docs384_tsv
+  ON public.documents_384 USING gin(tsv_full);
+CREATE INDEX IF NOT EXISTS idx_docs384_meta
+  ON public.documents_384 USING gin(metadata);
+CREATE INDEX IF NOT EXISTS idx_docs384_title
+  ON public.documents_384 USING gin((metadata->>'title') gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_docs384_auth
+  ON public.documents_384 USING gin((metadata->>'author') gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_docs384_type
+  ON public.documents_384 USING gin((metadata->>'type') gin_trgm_ops)
+  WHERE metadata ? 'type';
+CREATE INDEX IF NOT EXISTS idx_docs384_parent
+  ON public.documents_384 USING gin((metadata->>'__parent') gin_trgm_ops);
 
--- -------- documents_768 ------------------------------------------------------
-CREATE TABLE IF NOT EXISTS public.documents_768 (LIKE public.documents_384 INCLUDING ALL);
-ALTER TABLE public.documents_768 ALTER COLUMN embedding TYPE VECTOR(768);
+-- ---------- 768 --------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.documents_768
+  (LIKE public.documents_384 INCLUDING ALL);
+ALTER TABLE public.documents_768
+  ALTER COLUMN embedding TYPE VECTOR(768);
 DROP TRIGGER IF EXISTS tsv_full_trigger ON public.documents_768;
 CREATE TRIGGER tsv_full_trigger
   BEFORE INSERT OR UPDATE ON public.documents_768
   FOR EACH ROW EXECUTE FUNCTION public.update_tsv_full();
 CREATE INDEX IF NOT EXISTS idx_docs768_emb_hnsw
-  ON public.documents_768 USING hnsw(embedding vector_cosine_ops)
-  WITH (m=16, ef_construction=200);
+  ON public.documents_768 USING hnsw (embedding vector_cosine_ops)
+  WITH (m = 16, ef_construction = 200);
 CREATE INDEX IF NOT EXISTS idx_docs768_emb_ivf
-  ON public.documents_768 USING ivfflat(embedding vector_cosine_ops)
-  WITH (lists=400);
-CREATE INDEX IF NOT EXISTS idx_docs768_tsv   ON public.documents_768 USING gin(tsv_full);
-CREATE INDEX IF NOT EXISTS idx_docs768_meta  ON public.documents_768 USING gin(metadata);
-CREATE INDEX IF NOT EXISTS idx_docs768_title ON public.documents_768 USING gin((metadata->>'title') gin_trgm_ops);
-CREATE INDEX IF NOT EXISTS idx_docs768_auth  ON public.documents_768 USING gin((metadata->>'author') gin_trgm_ops);
-CREATE INDEX IF NOT EXISTS idx_docs768_type  ON public.documents_768 USING gin((metadata->>'type') gin_trgm_ops) WHERE metadata ? 'type';
-CREATE INDEX IF NOT EXISTS idx_docs768_parent ON public.documents_768 USING gin((metadata->>'__parent') gin_trgm_ops);
+  ON public.documents_768 USING ivfflat (embedding vector_cosine_ops)
+  WITH (lists = 400);
+CREATE INDEX IF NOT EXISTS idx_docs768_tsv
+  ON public.documents_768 USING gin(tsv_full);
+CREATE INDEX IF NOT EXISTS idx_docs768_meta
+  ON public.documents_768 USING gin(metadata);
+CREATE INDEX IF NOT EXISTS idx_docs768_title
+  ON public.documents_768 USING gin((metadata->>'title') gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_docs768_auth
+  ON public.documents_768 USING gin((metadata->>'author') gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_docs768_type
+  ON public.documents_768 USING gin((metadata->>'type') gin_trgm_ops)
+  WHERE metadata ? 'type';
+CREATE INDEX IF NOT EXISTS idx_docs768_parent
+  ON public.documents_768 USING gin((metadata->>'__parent') gin_trgm_ops);
 
--- ------- documents_1024 ------------------------------------------------------
-CREATE TABLE IF NOT EXISTS public.documents_1024 (LIKE public.documents_384 INCLUDING ALL);
-ALTER TABLE public.documents_1024 ALTER COLUMN embedding TYPE VECTOR(1024);
+-- ---------- 1024 -------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.documents_1024
+  (LIKE public.documents_384 INCLUDING ALL);
+ALTER TABLE public.documents_1024
+  ALTER COLUMN embedding TYPE VECTOR(1024);
 DROP TRIGGER IF EXISTS tsv_full_trigger ON public.documents_1024;
 CREATE TRIGGER tsv_full_trigger
   BEFORE INSERT OR UPDATE ON public.documents_1024
   FOR EACH ROW EXECUTE FUNCTION public.update_tsv_full();
 CREATE INDEX IF NOT EXISTS idx_docs1024_emb_hnsw
-  ON public.documents_1024 USING hnsw(embedding vector_cosine_ops)
-  WITH (m=16, ef_construction=200);
+  ON public.documents_1024 USING hnsw (embedding vector_cosine_ops)
+  WITH (m = 16, ef_construction = 200);
 CREATE INDEX IF NOT EXISTS idx_docs1024_emb_ivf
-  ON public.documents_1024 USING ivfflat(embedding vector_cosine_ops)
-  WITH (lists=400);
-CREATE INDEX IF NOT EXISTS idx_docs1024_tsv   ON public.documents_1024 USING gin(tsv_full);
-CREATE INDEX IF NOT EXISTS idx_docs1024_meta  ON public.documents_1024 USING gin(metadata);
-CREATE INDEX IF NOT EXISTS idx_docs1024_title ON public.documents_1024 USING gin((metadata->>'title') gin_trgm_ops);
-CREATE INDEX IF NOT EXISTS idx_docs1024_auth  ON public.documents_1024 USING gin((metadata->>'author') gin_trgm_ops);
-CREATE INDEX IF NOT EXISTS idx_docs1024_type  ON public.documents_1024 USING gin((metadata->>'type') gin_trgm_ops) WHERE metadata ? 'type';
-CREATE INDEX IF NOT EXISTS idx_docs1024_parent ON public.documents_1024 USING gin((metadata->>'__parent') gin_trgm_ops);
+  ON public.documents_1024 USING ivfflat (embedding vector_cosine_ops)
+  WITH (lists = 400);
+CREATE INDEX IF NOT EXISTS idx_docs1024_tsv
+  ON public.documents_1024 USING gin(tsv_full);
+CREATE INDEX IF NOT EXISTS idx_docs1024_meta
+  ON public.documents_1024 USING gin(metadata);
+CREATE INDEX IF NOT EXISTS idx_docs1024_title
+  ON public.documents_1024 USING gin((metadata->>'title') gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_docs1024_auth
+  ON public.documents_1024 USING gin((metadata->>'author') gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_docs1024_type
+  ON public.documents_1024 USING gin((metadata->>'type') gin_trgm_ops)
+  WHERE metadata ? 'type';
+CREATE INDEX IF NOT EXISTS idx_docs1024_parent
+  ON public.documents_1024 USING gin((metadata->>'__parent') gin_trgm_ops);
 
--- ------- documents_1536 ------------------------------------------------------
-CREATE TABLE IF NOT EXISTS public.documents_1536 (LIKE public.documents_384 INCLUDING ALL);
-ALTER TABLE public.documents_1536 ALTER COLUMN embedding TYPE VECTOR(1536);
+-- ---------- 1536 -------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.documents_1536
+  (LIKE public.documents_384 INCLUDING ALL);
+ALTER TABLE public.documents_1536
+  ALTER COLUMN embedding TYPE VECTOR(1536);
 DROP TRIGGER IF EXISTS tsv_full_trigger ON public.documents_1536;
 CREATE TRIGGER tsv_full_trigger
   BEFORE INSERT OR UPDATE ON public.documents_1536
   FOR EACH ROW EXECUTE FUNCTION public.update_tsv_full();
 CREATE INDEX IF NOT EXISTS idx_docs1536_emb_hnsw
-  ON public.documents_1536 USING hnsw(embedding vector_cosine_ops)
-  WITH (m=16, ef_construction=200);
+  ON public.documents_1536 USING hnsw (embedding vector_cosine_ops)
+  WITH (m = 16, ef_construction = 200);
 CREATE INDEX IF NOT EXISTS idx_docs1536_emb_ivf
-  ON public.documents_1536 USING ivfflat(embedding vector_cosine_ops)
-  WITH (lists=400);
-CREATE INDEX IF NOT EXISTS idx_docs1536_tsv   ON public.documents_1536 USING gin(tsv_full);
-CREATE INDEX IF NOT EXISTS idx_docs1536_meta  ON public.documents_1536 USING gin(metadata);
-CREATE INDEX IF NOT EXISTS idx_docs1536_title ON public.documents_1536 USING gin((metadata->>'title') gin_trgm_ops);
-CREATE INDEX IF NOT EXISTS idx_docs1536_auth  ON public.documents_1536 USING gin((metadata->>'author') gin_trgm_ops);
-CREATE INDEX IF NOT EXISTS idx_docs1536_type  ON public.documents_1536 USING gin((metadata->>'type') gin_trgm_ops) WHERE metadata ? 'type';
-CREATE INDEX IF NOT EXISTS idx_docs1536_parent ON public.documents_1536 USING gin((metadata->>'__parent') gin_trgm_ops);
+  ON public.documents_1536 USING ivfflat (embedding vector_cosine_ops)
+  WITH (lists = 400);
+CREATE INDEX IF NOT EXISTS idx_docs1536_tsv
+  ON public.documents_1536 USING gin(tsv_full);
+CREATE INDEX IF NOT EXISTS idx_docs1536_meta
+  ON public.documents_1536 USING gin(metadata);
+CREATE INDEX IF NOT EXISTS idx_docs1536_title
+  ON public.documents_1536 USING gin((metadata->>'title') gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_docs1536_auth
+  ON public.documents_1536 USING gin((metadata->>'author') gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_docs1536_type
+  ON public.documents_1536 USING gin((metadata->>'type') gin_trgm_ops)
+  WHERE metadata ? 'type';
+CREATE INDEX IF NOT EXISTS idx_docs1536_parent
+  ON public.documents_1536 USING gin((metadata->>'__parent') gin_trgm_ops);
 
 /*==============================================================================
   2) Funções UNIFICADAS de busca (delegam para a tabela correta)
 ==============================================================================*/
--- 2.1  Hybrid ---------------------------------------------------------------
+-- 2.1 Hybrid ---------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.match_documents_hybrid(
   query_embedding VECTOR,
   query_text      TEXT      DEFAULT NULL,
@@ -164,7 +177,7 @@ BEGIN
   END IF;
   sql := format($f$
     WITH knn_pool AS (
-      SELECT d.metadata->>'__parent' AS parent,
+      SELECT d.metadata ->> '__parent' AS parent,
              d.id, d.content, d.metadata,
              d.embedding <=> $1 AS dist,
              d.tsv_full
@@ -177,7 +190,7 @@ BEGIN
              CASE
                WHEN $2 IS NULL THEN NULL
                WHEN $2 ~ '^".*"$'
-                 THEN phraseto_tsquery('public.pt_en', trim(both '"' FROM $2))
+                 THEN phraseto_tsquery('public.pt_en', trim(both '"' from $2))
                ELSE websearch_to_tsquery('public.pt_en', $2)
              END AS tsq
         FROM knn_pool kp
@@ -186,14 +199,18 @@ BEGIN
              1 - dist AS sim,
              COALESCE(
                CASE
-                 WHEN tsq IS NOT NULL AND tsv_full @@ tsq THEN ts_rank(tsv_full, tsq)
-                 WHEN $2 IS NOT NULL AND content ILIKE '%'||$2||'%' THEN 1
+                 WHEN tsq IS NOT NULL AND tsv_full @@ tsq
+                   THEN ts_rank(tsv_full, tsq)
+                 WHEN $2 IS NOT NULL AND content ILIKE '%'||$2||'%'
+                   THEN 1
                  ELSE 0
                END, 0) AS lex_rank
         FROM knn_ts
     ), combined AS (
       SELECT id, content, metadata,
-             CASE WHEN lex_rank>0 THEN $5*sim + $6*lex_rank ELSE sim END AS score
+             CASE WHEN lex_rank > 0
+                  THEN $5 * sim + $6 * lex_rank
+                  ELSE sim END AS score
         FROM scored
     )
     SELECT * FROM combined
@@ -207,7 +224,7 @@ BEGIN
 END;
 $$;
 
--- 2.2  Precise ---------------------------------------------------------------
+-- 2.2 Precise --------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.match_documents_precise(
   query_embedding VECTOR,
   query_text      TEXT      DEFAULT NULL,
@@ -247,7 +264,7 @@ BEGIN
              CASE
                WHEN $2 IS NULL THEN NULL
                WHEN $2 ~ '^".*"$'
-                 THEN phraseto_tsquery('public.pt_en', trim(both '"' FROM $2))
+                 THEN phraseto_tsquery('public.pt_en', trim(both '"' from $2))
                ELSE websearch_to_tsquery('public.pt_en', $2)
              END AS tsq
         FROM knn_pool kp
@@ -256,14 +273,18 @@ BEGIN
              (1 - cos_dist) AS sim,
              COALESCE(
                CASE
-                 WHEN tsq IS NOT NULL AND tsv_full @@ tsq THEN ts_rank(tsv_full, tsq)
-                 WHEN $2 IS NOT NULL AND content ILIKE '%'||$2||'%' THEN 1
+                 WHEN tsq IS NOT NULL AND tsv_full @@ tsq
+                   THEN ts_rank(tsv_full, tsq)
+                 WHEN $2 IS NOT NULL AND content ILIKE '%'||$2||'%'
+                   THEN 1
                  ELSE 0
                END, 0) AS lex_rank
         FROM knn_ts
     ), combined AS (
       SELECT id, content, metadata,
-             CASE WHEN lex_rank>0 THEN $5*sim + $6*lex_rank ELSE sim END AS score
+             CASE WHEN lex_rank > 0
+                  THEN $5 * sim + $6 * lex_rank
+                  ELSE sim END AS score
         FROM scored
     )
     SELECT * FROM combined
@@ -278,7 +299,7 @@ END;
 $$;
 
 /*==============================================================================
-  3) Ajustes finais de sessão
+  3) Ajustes finais
 ==============================================================================*/
 SET hnsw.ef_search               = 200;
 SET ivfflat.probes               = 50;
