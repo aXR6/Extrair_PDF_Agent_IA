@@ -2,9 +2,10 @@
 """
 serve.py – Embedding HTTP Server
 
-FastAPI service that converts text to embeddings.
+FastAPI service que converte texto em embeddings.
 Em __main__, exibe um menu CLI para selecionar o modelo padrão
-antes de subir o Uvicorn. Faz fallback automático para CPU em caso de OOM.
+antes de subir o Uvicorn. Carrega sempre em CPU por padrão para
+evitar OOM em GPU.
 """
 
 import os
@@ -19,7 +20,7 @@ from pydantic import BaseModel, Field
 from sentence_transformers import SentenceTransformer
 from dotenv import load_dotenv
 
-# ─── Carrega .env ───────────────────────────────────────────────────────────
+# ─── Carrega variáveis de ambiente do arquivo .env ──────────────────────────
 load_dotenv()
 
 EMBEDDING_MODELS = [
@@ -27,32 +28,40 @@ EMBEDDING_MODELS = [
     for m in os.getenv("EMBEDDING_MODELS", "").split(",")
     if m.strip()
 ]
+
 DEFAULT_MODEL = os.getenv(
     "DEFAULT_EMBEDDING_MODEL",
     EMBEDDING_MODELS[0] if EMBEDDING_MODELS else None
 )
+
 SERVER_PORT = int(os.getenv("EMBEDDING_SERVER_PORT", "11435"))
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 
-# ─── Inicializa logging ─────────────────────────────────────────────────────
+# ─── Configura logging ───────────────────────────────────────────────────────
 logging.basicConfig(level=LOG_LEVEL)
 logger = logging.getLogger(__name__)
 
-# ─── Cria FastAPI app ────────────────────────────────────────────────────────
+# ─── Cria a aplicação FastAPI e cache de modelos ────────────────────────────
 app = FastAPI(title="Embedding Server")
 _model_cache: Dict[str, SentenceTransformer] = {}
 
 def get_model(name: str) -> SentenceTransformer:
-    """Carrega e cacheia SentenceTransformer."""
+    """
+    Carrega e cacheia SentenceTransformer em CPU (device='cpu').
+    Se falhar, retorna HTTPException(400) indicando modelo inválido.
+    """
     if name not in _model_cache:
         try:
-            _model_cache[name] = SentenceTransformer(name)
+            logger.info(f"Carregando modelo '{name}' em CPU...")
+            # FORÇAR carregamento em CPU:
+            _model_cache[name] = SentenceTransformer(name, device="cpu")
+            logger.info(f"Modelo '{name}' carregado com sucesso (device=cpu).")
         except Exception as e:
             logger.error(f"Falha ao carregar modelo '{name}': {e}")
             raise HTTPException(status_code=400, detail=f"Modelo inválido: {name}")
     return _model_cache[name]
 
-# ─── Pydantic Schemas ────────────────────────────────────────────────────────
+# ─── Schemas Pydantic ────────────────────────────────────────────────────────
 class EmbeddingRequest(BaseModel):
     model: Optional[str] = Field(
         None, description="Nome do modelo (opcional). Se omitido, usa o padrão."
@@ -75,7 +84,7 @@ async def embed(req: EmbeddingRequest, request: Request):
     """
     Gera embeddings para o texto fornecido.
     Usa req.model ou DEFAULT_MODEL.
-    Faz fallback para CPU em caso de CUDA OOM.
+    Carregamento forçado em CPU (device='cpu').
     """
     model_name = req.model or DEFAULT_MODEL
     if model_name not in EMBEDDING_MODELS:
@@ -83,35 +92,24 @@ async def embed(req: EmbeddingRequest, request: Request):
             status_code=400, detail=f"Modelo '{model_name}' não disponível."
         )
 
+    # Obtém (ou carrega) o modelo em CPU:
     model = get_model(model_name)
+
     try:
+        # Realmente gera o vetor (em CPU)
         vec = model.encode(req.input, convert_to_numpy=True)
-    except RuntimeError as e:
-        err = str(e).lower()
-        if "out of memory" in err:
-            logger.warning(f"CUDA OOM em {model_name}, tentando CPU fallback.")
-            torch.cuda.empty_cache()
-            model.to("cpu")
-            try:
-                vec = model.encode(req.input, convert_to_numpy=True)
-            except Exception as e2:
-                logger.error(f"CPU fallback falhou: {e2}")
-                raise HTTPException(
-                    status_code=500, detail="Erro ao gerar embeddings em CPU."
-                )
-        else:
-            logger.error(f"Erro inesperado no encode: {e}")
-            raise HTTPException(status_code=500, detail="Falha ao gerar embeddings.")
     except Exception as e:
-        logger.error(f"Erro no encode: {e}")
+        # Qualquer exceção durante encode gera 500
+        logger.error(f"Erro ao gerar embeddings com o modelo '{model_name}': {e}")
         raise HTTPException(status_code=500, detail="Falha ao gerar embeddings.")
 
+    # Converte numpy array em lista de floats
     data = vec.tolist() if hasattr(vec, "tolist") else list(vec)
     return EmbeddingResponse(embedding=data)
 
 @app.get("/health")
 async def health(request: Request):
-    """Health check."""
+    """Health check básico."""
     return {
         "status": "ok",
         "default_model": DEFAULT_MODEL
@@ -121,7 +119,7 @@ async def health(request: Request):
 def choose_default_model() -> str:
     """
     Exibe um menu de seleção de modelo e retorna o escolhido.
-    Rodar apenas em __main__ para evitar duplicação.
+    Só roda em __main__, evitando duplicação de lógica.
     """
     print("\n=== Selecione o modelo padrão de embedding ===")
     for idx, name in enumerate(EMBEDDING_MODELS, start=1):
@@ -140,7 +138,7 @@ def choose_default_model() -> str:
 
 # ─── Execução como script ───────────────────────────────────────────────────
 if __name__ == "__main__":
-    # Executa menu ANTES de subir o servidor
+    # Antes de subir o servidor, exibe menu para selecionar DEFAULT_MODEL
     if EMBEDDING_MODELS:
         DEFAULT_MODEL = choose_default_model()
         print(f"\nModelo padrão definido: {DEFAULT_MODEL}\n")
