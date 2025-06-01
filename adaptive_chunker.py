@@ -1,4 +1,3 @@
-#adaptive_chunker.py
 import os
 import logging
 import torch
@@ -27,11 +26,12 @@ except LookupError:
 _SBERT_CACHE: dict = {}
 
 def get_sbert_model(model_name: str = SBERT_MODEL_NAME) -> SentenceTransformer:
-    """Carrega e retorna instância SentenceTransformer em cache."""
+    """Carrega e retorna instância SentenceTransformer em cache, FORÇANDO CPU."""
     if model_name not in _SBERT_CACHE:
-        device = "cuda" if torch.cuda.is_available() else "cpu"
         try:
-            _SBERT_CACHE[model_name] = SentenceTransformer(model_name, device=device)
+            logging.info(f"Carregando SBERT '{model_name}' em CPU (force).")
+            _SBERT_CACHE[model_name] = SentenceTransformer(model_name, device="cpu")
+            logging.info(f"SBERT '{model_name}' carregado com sucesso em CPU.")
         except Exception as e:
             logging.error(f"Falha ao carregar SBERT '{model_name}': {e}")
             raise
@@ -54,9 +54,9 @@ def hierarchical_chunk(text: str, metadata: dict, model_name: str = SBERT_MODEL_
     Chunking inteligente baseado em parágrafos:
     - Detecta parágrafos completos via filter_paragraphs.
     - Agrupa parágrafos inteiros até atingir o limite de tokens.
-    - Se um parágrafo exceder o limite, divide-o internamente em sub-chunks.
+    - Se um parágrafo exceder o limite, divide-o em sub-chunks.
     """
-    # Limpa cache da GPU antes
+    # Limpa cache da GPU antes (precaução)
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
 
@@ -67,7 +67,7 @@ def hierarchical_chunk(text: str, metadata: dict, model_name: str = SBERT_MODEL_
     except AttributeError:
         max_tokens = tokenizer.model_max_length
 
-    # Expansão de query
+    # Expansão de query (se existir no metadata)
     query = metadata.get('__query')
     if query:
         metadata['__query_expanded'] = expand_query(query)
@@ -113,7 +113,7 @@ def hierarchical_chunk(text: str, metadata: dict, model_name: str = SBERT_MODEL_
     if current_para_group:
         chunks.append("\n\n".join(current_para_group))
 
-    # Limpa cache da GPU após
+    # Limpa cache da GPU após (precaução)
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
 

@@ -1,4 +1,3 @@
-# main.py
 #!/usr/bin/env python3
 import os
 import sys
@@ -21,12 +20,12 @@ from utils import setup_logging, is_valid_file, build_record, repair_pdf
 from pg_storage import save_to_postgres
 from adaptive_chunker import get_sbert_model
 
-# valida e inicializa SBERT + logs
+# Valida configuração e inicializa SBERT + logs
 validate_config()
 setup_logging()
-get_sbert_model()
+get_sbert_model()  # Carrega SBERT em CPU logo no início
 
-# opções de menu
+# Opções de menu
 STRATEGY_OPTIONS = [
     "pypdf", "pdfminer", "pdfminer-low", "unstructured",
     "ocr", "plumber", "tika", "pymupdf4llm"
@@ -45,6 +44,7 @@ DIMENSIONS = {
     "4": DIM_MINIL12,
     "5": DIM_MPNET
 }
+
 
 def clear_screen():
     os.system("clear")
@@ -102,6 +102,14 @@ def process_file(path, strat, model, dim, stats):
     except Exception as e:
         logging.error(f"Erro salvando {p2}: {e}")
         stats['errors'] += 1
+    finally:
+        # Forçar remoção de textos e metadados grandes e coletar lixo
+        try:
+            del text
+            del rec
+            import gc; gc.collect()
+        except Exception:
+            pass
 
 
 def main():
@@ -154,6 +162,11 @@ def main():
             for path in pbar:
                 process_file(path, strat, model, dim, stats)
                 pbar.set_postfix(P=stats['processed'], E=stats['errors'])
+                # Coleta lixo após cada arquivo
+                try:
+                    import gc; gc.collect()
+                except Exception:
+                    pass
             pbar.close()
             dt = time.perf_counter() - start
             print(f"=== Resumo ===\n P: {stats['processed']}\n E: {stats['errors']}\n T: {dt:.2f}s")

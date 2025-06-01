@@ -10,18 +10,20 @@ from metrics import record_metrics
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:128"
 
 def generate_embedding(text: str, model_name: str, dim: int) -> list[float]:
-    """Gera embedding com fallback CPU e liberação de GPU."""
+    """Gera embedding com fallback CPU e liberação de memória."""
     try:
         model = get_sbert_model(model_name)
-        device = model.device
-        emb = model.encode(text, convert_to_numpy=True)
+        # Garante modo inference (sem gradiente)
+        with torch.no_grad():
+            emb = model.encode(text, convert_to_numpy=True)
     except RuntimeError as e:
         msg = str(e).lower()
         if "out of memory" in msg:
             logging.warning("CUDA OOM – tentando em CPU")
             torch.cuda.empty_cache()
             model = get_sbert_model(model_name)
-            emb = model.encode(text, convert_to_numpy=True)
+            with torch.no_grad():
+                emb = model.encode(text, convert_to_numpy=True)
         else:
             logging.error(f"Erro embed genérico: {e}")
             return [0.0] * dim
@@ -30,15 +32,20 @@ def generate_embedding(text: str, model_name: str, dim: int) -> list[float]:
         return [0.0] * dim
 
     vec = emb.tolist() if hasattr(emb, "tolist") else list(emb)
-    # ajusta comprimento
+    # Ajusta comprimento para a dimensão correta
     if len(vec) < dim:
         vec += [0.0] * (dim - len(vec))
     elif len(vec) > dim:
         vec = vec[:dim]
-    # limpa GPU
-    if torch.cuda.is_available():
+
+    # Limpa cache da GPU (precaução)
+    try:
         torch.cuda.empty_cache()
+    except Exception:
+        pass
+
     return vec
+
 
 @record_metrics
 def save_to_postgres(filename: str,
