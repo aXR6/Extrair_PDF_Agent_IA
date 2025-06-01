@@ -1,8 +1,5 @@
 # 🧠 Extração, Chunking e Indexação Inteligente de Documentos PDF/DOCX
 
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Python](https://img.shields.io/badge/python-3.8%2B-blue.svg)](https://www.python.org/downloads/)
-
 ## Visão Geral
 
 Pipeline completo para processamento de documentos PDF, DOCX e imagens, incluindo:
@@ -21,18 +18,19 @@ Pipeline completo para processamento de documentos PDF, DOCX e imagens, incluind
 
 ### 1. Extração de Texto
 
-- Detecção automática de PDFs criptografados com fallback para OCR (pytesseract + pdf2image)
+- Detecção automática de PDFs criptografados com fallback para OCR (`pytesseract` + `pdf2image`)
 - Suporte a OCR direto em imagens (PNG, JPG, JPEG, TIFF, BMP)
-- **Estratégias Disponíveis:**
-    - PyPDFLoader (LangChain)
-    - PDFMinerLoader (LangChain)
-    - PDFMiner Low-Level (pdfminer.six)
-    - Unstructured (.docx)
-    - OCR Hybrid para PDF (pytesseract)
-    - ImageOCR (PIL + pytesseract)
-    - PDFPlumber
-    - Apache Tika
-    - PyMuPDF4LLM (Markdown)
+
+**Estratégias Disponíveis:**
+- PyPDFLoader (LangChain)
+- PDFMinerLoader (LangChain)
+- PDFMiner Low-Level (pdfminer.six)
+- Unstructured (.docx)
+- OCR Hybrid para PDF (pytesseract)
+- ImageOCR (PIL + pytesseract)
+- PDFPlumber
+- Apache Tika
+- PyMuPDF4LLM (Markdown)
 
 ### 2. Chunking Inteligente
 
@@ -45,32 +43,35 @@ Pipeline completo para processamento de documentos PDF, DOCX e imagens, incluind
 
 ### 3. Modelos de Embedding & Dimensões
 
-| Opção | Modelo                                                                                | Dimensão |
-|-------|---------------------------------------------------------------------------------------|----------|
-| 1     | mxbai-embed-large (Ollama API)                                                        | 1024     |
-| 2     | PORTULAN/serafim-900m-portuguese-pt-sentence-encoder-ir (pt-BR IR)                    | 1536     |
-| 3     | sentence-transformers/all-mpnet-base-v2 (English MPNet)                               | 768      |
-| 4     | sentence-transformers/all-MiniLM-L6-v2 (MiniLM L6 multilingual)                       | 384      |
+| Opção | Modelo                                                                 | Dimensão |
+|-------|------------------------------------------------------------------------|----------|
+| 1     | mxbai-embed-large (Ollama API)                                         | 1024     |
+| 2     | PORTULAN/serafim-900m-portuguese-pt-sentence-encoder-ir (pt-BR IR)     | 1536     |
+| 3     | sentence-transformers/all-mpnet-base-v2 (English MPNet)                | 768      |
+| 4     | sentence-transformers/all-MiniLM-L6-v2 (MiniLM L6 multilingual)        | 384      |
 | 5     | sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2 (MiniLM L12 multilingual) | 384      |
 
-> Todos os modelos e dimensões são configuráveis no arquivo `.env`.
+Todos os modelos e dimensões são configuráveis no arquivo `.env`.
 
 ### 4. Indexação e Busca
 
 - **Banco:** PostgreSQL + extensão pgvector
-- **Tabelas por dimensão:**
-    - `public.documents_384`
-    - `public.documents_768`
-    - `public.documents_1024`
-    - `public.documents_1536`
-- **Funções Unificadas:**
-    - `public.match_documents_hybrid(query_embedding, query_text, ...)`
-    - `public.match_documents_precise(query_embedding, query_text, ...)`
-- **Índices e Extensões:**
-    - `vector` (pgvector)
-    - HNSW / IVFFlat para busca vetorial em cada tabela
-    - GIN em `tsv_full` e `metadata`
-    - GIN trigram (`gin_trgm_ops`) em `title`, `author`, `type`, `__parent`
+
+**Tabelas por dimensão:**
+- `public.documents_384`
+- `public.documents_768`
+- `public.documents_1024`
+- `public.documents_1536`
+
+**Funções Unificadas:**
+- `public.match_documents_hybrid(query_embedding, query_text, ...)`
+- `public.match_documents_precise(query_embedding, query_text, ...)`
+
+**Índices e Extensões:**
+- `vector` (pgvector)
+- HNSW / IVFFlat para busca vetorial em cada tabela
+- GIN em `tsv_full` e `metadata`
+- GIN trigram (`gin_trgm_ops`) em `title`, `author`, `type`, `__parent`
 
 ### 5. Re-ranking & Métricas
 
@@ -82,74 +83,79 @@ Pipeline completo para processamento de documentos PDF, DOCX e imagens, incluind
 
 ### 6. CLI Interativo & Estatísticas
 
-- **Menu Principal:**
-    - Selecionar Estratégia de Extração
-    - Selecionar Embedding Model
-    - Selecionar Dimensão
-    - Processar Arquivo / Pasta (inclui imagens)
-    - Sair
-- **Flags:**
-    - `--verbose`: logs detalhados
-- **Progresso:** `tqdm` com `set_postfix` para processados/erros
-- **Resumo Final:** totais de processados, erros e tempo total
+**Menu Principal:**
+- Selecionar Estratégia de Extração
+- Selecionar Embedding Model
+- Selecionar Dimensão
+- Processar Arquivo / Pasta (inclui imagens)
+- Sair
+
+**Flags:**
+- `--verbose`: logs detalhados
+
+**Progresso:** `tqdm` com `set_postfix` para processados/erros
+
+**Resumo Final:** totais de processados, erros e tempo total
 
 ---
 
 ## Requisitos de Sistema
 
-> Testado em **Debian 12** / **Ubuntu 22.04**
-
+- Testado em Debian 12 / Ubuntu 22.04
 - Python 3.8+
 
-### Dependências do Sistema
+---
+
+## Dependências do Sistema
 
 ```bash
 sudo apt update
 sudo apt install -y \
-    poppler-utils \
-    mupdf-tools \
-    ghostscript \
-    qpdf \
-    tesseract-ocr \
-    tesseract-ocr-eng tesseract-ocr-por \
-    libpoppler-cpp-dev pkg-config \
-    imagemagick \
-    default-jre \
-    libmagic1 \
-    fontconfig
+        poppler-utils \
+        mupdf-tools \
+        ghostscript \
+        qpdf \
+        tesseract-ocr \
+        tesseract-ocr-eng tesseract-ocr-por \
+        libpoppler-cpp-dev pkg-config \
+        imagemagick \
+        default-jre \
+        libmagic1 \
+        fontconfig
 ```
 
-> Para `pdftotext` Python: `pip install pdftotext` após `libpoppler-cpp-dev pkg-config`.
+Para `pdftotext` Python:  
+`pip install pdftotext` após `libpoppler-cpp-dev pkg-config`.
 
 ---
 
 ## Instalação
 
-1. **Clone o repositório:**
+Clone o repositório:
 
-     ```bash
-     git clone https://github.com/seu_usuario/seu_projeto.git
-     cd seu_projeto
-     ```
+```bash
+git clone https://github.com/seu_usuario/seu_projeto.git
+cd seu_projeto
+```
 
-2. **Crie e ative um virtualenv:**
+Crie e ative um virtualenv:
 
-     ```bash
-     python3 -m venv .venv
-     source .venv/bin/activate
-     ```
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+```
 
-3. **Instale dependências Python:**
+Instale dependências Python:
 
-     ```bash
-     pip install -r requirements.txt
-     ```
+```bash
+pip install -r requirements.txt
+```
 
 ---
 
 ## Exemplo de `.env`
 
-```dotenv
+```env
 # NVD API Key (para incremental)
 NVD_API_KEY=98dbb4f5-7540-4ca1-ae81-ffabf4b076b6
 
@@ -192,14 +198,14 @@ CSV_INCR=vulnerabilidades_incrementais.csv
 
 ## Preparação do Banco PostgreSQL
 
-1. **Instale extensões** dentro do banco:
+Instale extensões dentro do banco:
 
-     ```sql
-     CREATE EXTENSION IF NOT EXISTS vector;
-     CREATE EXTENSION IF NOT EXISTS pg_trgm;
-     ```
+```sql
+CREATE EXTENSION IF NOT EXISTS vector;
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+```
 
-2. **Execute o DDL completo** para criar tabelas, dicionários, configuração FTS, triggers e índices conforme as instruções.
+Execute o DDL completo para criar tabelas, dicionários, configuração FTS, triggers e índices conforme as instruções.
 
 ---
 
@@ -211,17 +217,58 @@ python3 main.py [--verbose]
 
 ---
 
-## Changelog de Exemplo
+## Melhorias e Adaptações Recentes
 
-```yaml
-feat: suportar tabelas por dimensão, FTS multilíngue e OCR de imagens
-- adicionar ImageOCRStrategy e detectar PNG/JPG/TIFF no extractors
-- atualizar is_valid_file e loop de pasta para imagens
-- README.md: incluir OCR de imagens nas funcionalidades e CLI
+Nas versões anteriores, experimentamos “Morto” (SIGKILL) ao processar grande quantidade de arquivos, devido a uso excessivo de memória GPU e fragmentação de objetos. Para resolver esses problemas, aplicamos as seguintes melhorias:
+
+### 1. Forçar SBERT em CPU (`adaptive_chunker.py`)
+
+**Antes:**
+```python
+device = "cuda" if torch.cuda.is_available() else "cpu"
+SentenceTransformer(model_name, device=device)
 ```
+Carregava SBERT na GPU sempre que disponível, gerando OOM.
+
+**Agora:**
+```python
+SentenceTransformer(model_name, device="cpu")
+```
+Força CPU em todas as chamadas, eliminando o uso de VRAM e evitando erros “CUDA out of memory”.
+
+### 2. Inference sem gradiente e limpeza agressiva (`pg_storage.py`)
+
+- Uso de `torch.no_grad()`: envolve `model.encode(...)` para evitar criação de buffers de gradientes.
+- Limpeza de memória GPU: chama `torch.cuda.empty_cache()` após cada geração de embedding.
+- Fallback transparente: tratamento de `RuntimeError` (“out of memory”), mas raramente acionado, já que SBERT roda em CPU.
+
+### 3. Coleta de Lixo Imediata e Remoção de Referências Grandes (`main.py`)
+
+Depois de salvar cada documento:
+```python
+del text
+del rec
+import gc; gc.collect()
+```
+Remove explicitamente strings e metadados volumosos e força coleta de lixo, reduzindo footprint de RAM entre processamentos.
+
+Coleta ao final de cada arquivo no loop de pasta: chama `gc.collect()` dentro do loop para garantir liberação de objetos grandes antes de seguir para o próximo.
+
+### 4. Ajustes no Processo de `generate_embedding`
+
+- **Padding/Truncation Automático:** ajusta o vetor resultante (`vec`) para ter exatamente a dimensão esperada, adicionando zeros ou truncando excedentes.
+- **Tratamento de Exceções Robusto:** em caso de qualquer falha na geração de embedding, retorna vetor de zeros — evitando quebra total do pipeline.
 
 ---
 
-## Licença
+## Changelog de Exemplo
 
-Distribuído sob a licença MIT. Veja [LICENSE](LICENSE) para mais informações.
+```yaml
+feat: otimizações de memória e estabilidade no processamento em lote
+- FORÇAR SBERT a rodar em CPU (evita OOM na GPU)
+- Adicionar torch.no_grad() no encode para não manter gradientes
+- Incluir torch.cuda.empty_cache() após cada embedding
+- Chamar del text, del rec e gc.collect() em main.py para liberar memória RAM
+- Ajustar generate_embedding para padding/truncation e fallback robusto
+- Atualizar README com detalhes das melhorias aplicadas
+```
