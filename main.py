@@ -6,7 +6,7 @@ import time
 import logging
 from tqdm import tqdm
 
-# garante imports locais
+# Garante imports locais
 sys.path.insert(0, os.path.dirname(__file__))
 
 from config import (
@@ -50,29 +50,39 @@ def clear_screen():
     os.system("clear")
 
 
-def select_strategy():
+def select_strategy(current: str) -> str:
     print("\n*** Selecione Estratégia ***")
     for i, k in enumerate(STRATEGY_OPTIONS, 1):
         print(f"{i} - {k}")
-    c = input("Escolha [ocr]: ").strip()
-    return STRATEGY_OPTIONS[int(c)-1] if c.isdigit() and 1 <= int(c) <= len(STRATEGY_OPTIONS) else "ocr"
+    c = input(f"Escolha [{current}]: ").strip()
+    if c.isdigit() and 1 <= int(c) <= len(STRATEGY_OPTIONS):
+        return STRATEGY_OPTIONS[int(c)-1]
+    return current
 
 
-def select_embedding():
+def select_embedding(current: str) -> str:
     print("\n*** Selecione Embedding ***")
     for k, n in EMBED_MODELS.items():
         print(f"{k} - {n}")
-    return EMBED_MODELS.get(input("Escolha [1]: ").strip(), OLLAMA_EMBEDDING_MODEL)
+    c = input(f"Escolha [{current}]: ").strip()
+    return EMBED_MODELS.get(c, current)
 
 
-def select_dimension():
+def select_dimension(current: int) -> int:
     print("\n*** Selecione Dimensão ***")
     for k, d in DIMENSIONS.items():
         print(f"{k} - {d}")
-    return DIMENSIONS.get(input("Escolha [1]: ").strip(), DIM_MXBAI)
+    c = input(f"Escolha [{current}]: ").strip()
+    return DIMENSIONS.get(c, current)
 
 
-def process_file(path, strat, model, dim, stats):
+def process_file(path: str, strat: str, model: str, dim: int, stats: dict):
+    """
+    Processa um único arquivo: extrai texto, gera embeddings e salva no PostgreSQL.
+    """
+    filename = os.path.basename(path)
+    logging.info(f"→ Processando arquivo: {filename}  |  Estratégia: {strat}  |  Embedding: {model}  |  Dimensão: {dim}")
+
     p = os.path.normpath(path.strip())
     base, ext = os.path.splitext(p)
     p2 = base.rstrip() + ext
@@ -84,25 +94,25 @@ def process_file(path, strat, model, dim, stats):
 
     if not is_valid_file(p2):
         stats['errors'] += 1
+        logging.error(f"Arquivo inválido: {filename}")
         return
 
     text = extract_text(p2, strat)
     if not text or len(text.strip()) < OCR_THRESHOLD:
-        logging.error(f"Não foi possível extrair: {os.path.basename(p2)}")
+        logging.error(f"Não foi possível extrair texto: {filename}")
         stats['errors'] += 1
         return
 
     rec = build_record(p2, text)
     try:
-        # Agora save_to_postgres retorna um inteiro (quantos chunks foram inseridos)
         inserted_count = save_to_postgres(
-            os.path.basename(p2), rec['text'], rec['info'],
+            filename, rec['text'], rec['info'],
             model, dim
         )
         stats['processed'] += 1
-        logging.info(f"→ Arquivo '{os.path.basename(p2)}' inseriu {inserted_count} chunks.")
+        logging.info(f"→ '{filename}' inseriu {inserted_count} chunks no banco.")
     except Exception as e:
-        logging.error(f"Erro salvando {p2}: {e}")
+        logging.error(f"Erro salvando '{filename}': {e}")
         stats['errors'] += 1
     finally:
         # Forçar remoção de textos e metadados grandes e coletar lixo
@@ -137,47 +147,82 @@ def main():
 
         if c == "0":
             break
+
         elif c == "1":
-            strat = select_strategy()
+            strat = select_strategy(strat)
+
         elif c == "2":
-            model = select_embedding()
+            model = select_embedding(model)
+
         elif c == "3":
-            dim = select_dimension()
+            dim = select_dimension(dim)
+
         elif c == "4":
+            # Modo “Arquivo”: processa apenas um PDF
             f = input("Arquivo: ").strip()
+            if not f:
+                print("Nenhum arquivo informado.")
+                time.sleep(1)
+                continue
+
             start = time.perf_counter()
             process_file(f, strat, model, dim, stats)
             dt = time.perf_counter() - start
-            print(f"→ {dt:.2f}s • P: {stats['processed']} • E: {stats['errors']}")
-            input("ENTER…")
+
+            print(f"\n→ Tempo gasto: {dt:.2f}s  •  Processados: {stats['processed']}  •  Erros: {stats['errors']}")
+            input("ENTER para continuar…")
+
         elif c == "5":
+            # Modo “Pasta”: varre todos os arquivos de dentro de um diretório
             d = input("Pasta: ").strip()
+            if not d or not os.path.isdir(d):
+                print("Pasta inválida ou não existe.")
+                time.sleep(1)
+                continue
+
+            # Coleta de todos os PDFs, DOCX e Imagens na pasta recursivamente
             files = [
                 os.path.join(root, fname)
                 for root, _, files_ in os.walk(d)
                 for fname in files_
                 if fname.lower().endswith((".pdf", ".docx", ".png", ".jpg", ".jpeg", ".tiff"))
             ]
-            print(f"Total: {len(files)}")
+
+            total_files = len(files)
+            print(f"Total de arquivos encontrados: {total_files}")
+            if total_files == 0:
+                input("ENTER para continuar…")
+                continue
+
             start = time.perf_counter()
+
+            # tqdm com descrição dinâmica do arquivo atual
             pbar = tqdm(files, unit="arquivo")
             for path in pbar:
+                basename = os.path.basename(path)
+                # Altera a descrição para mostrar exatamente qual arquivo está sendo processado
+                pbar.set_description(f"Processando → {basename} | Strat: {strat} | Emb: {model} | Dim: {dim}")
                 process_file(path, strat, model, dim, stats)
-                pbar.set_postfix(P=stats['processed'], E=stats['errors'])
+                pbar.set_postfix({"P": stats['processed'], "E": stats['errors']})
                 # Coleta lixo após cada arquivo
                 try:
                     import gc; gc.collect()
                 except Exception:
                     pass
+
             pbar.close()
             dt = time.perf_counter() - start
-            print(f"=== Resumo ===\n P: {stats['processed']}\n E: {stats['errors']}\n T: {dt:.2f}s")
-            input("ENTER…")
+
+            print(f"\n=== Resumo final ===")
+            print(f"  Processados: {stats['processed']}  •  Erros: {stats['errors']}  •  Tempo total: {dt:.2f}s")
+            input("ENTER para continuar…")
+
         else:
-            input("Inválido…")
+            print("Opção inválida.")
+            time.sleep(1)
 
     clear_screen()
-    print(f"Processados: {stats['processed']}  Erros: {stats['errors']}")
+    print(f"Processados: {stats['processed']}  •  Erros: {stats['errors']}")
 
 
 if __name__ == "__main__":
