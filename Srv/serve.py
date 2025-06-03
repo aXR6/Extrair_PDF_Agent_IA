@@ -4,7 +4,7 @@ serve.py – Embedding HTTP Server
 
 FastAPI service que converte texto em embeddings.
 Em __main__, exibe um menu CLI para selecionar o modelo padrão
-antes de subir o Uvicorn. Carrega sempre em CPU por padrão para
+e a porta antes de subir o Uvicorn. Carrega sempre em CPU por padrão para
 evitar OOM em GPU.
 """
 
@@ -142,6 +142,15 @@ if __name__ == "__main__":
     if EMBEDDING_MODELS:
         DEFAULT_MODEL = choose_default_model()
         print(f"\nModelo padrão definido: {DEFAULT_MODEL}\n")
+
+    # Solicita porta ao usuário (usa SERVER_PORT como valor padrão)
+    try:
+        port_input = input(f"Digite a porta para o servidor [{SERVER_PORT}]: ").strip()
+        if port_input.isdigit():
+            SERVER_PORT = int(port_input)
+    except Exception:
+        pass
+
     uvicorn.run(
         "serve:app",
         host="0.0.0.0",

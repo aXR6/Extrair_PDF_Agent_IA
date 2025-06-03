@@ -16,7 +16,7 @@ from config import (
     OCR_THRESHOLD, validate_config
 )
 from extractors import extract_text
-from utils import setup_logging, is_valid_file, build_record, repair_pdf
+from utils import setup_logging, is_valid_file, build_record
 from pg_storage import save_to_postgres
 from adaptive_chunker import get_sbert_model
 
@@ -94,11 +94,13 @@ def process_file(path, strat, model, dim, stats):
 
     rec = build_record(p2, text)
     try:
-        save_to_postgres(
+        # Agora save_to_postgres retorna um inteiro (quantos chunks foram inseridos)
+        inserted_count = save_to_postgres(
             os.path.basename(p2), rec['text'], rec['info'],
             model, dim
         )
         stats['processed'] += 1
+        logging.info(f"→ Arquivo '{os.path.basename(p2)}' inseriu {inserted_count} chunks.")
     except Exception as e:
         logging.error(f"Erro salvando {p2}: {e}")
         stats['errors'] += 1

@@ -1,9 +1,11 @@
+# pg_storage.py
+
 import os
 import logging
 import json
 import psycopg2
 import torch
-from adaptive_chunker import hierarchical_chunk, get_sbert_model
+from adaptive_chunker import hierarchical_chunk_generator, get_sbert_model
 from config import PG_HOST, PG_PORT, PG_USER, PG_PASSWORD, PG_DATABASE
 from metrics import record_metrics
 
@@ -46,14 +48,19 @@ def generate_embedding(text: str, model_name: str, dim: int) -> list[float]:
 
     return vec
 
-
 @record_metrics
 def save_to_postgres(filename: str,
                      text: str,
                      metadata: dict,
                      embedding_model: str,
-                     embedding_dim: int):
+                     embedding_dim: int) -> int:
+    """
+    Insere no PostgreSQL cada chunk gerado em streaming pelo hierarchical_chunk_generator.
+    Retorna o número de chunks inseridos (ou raise em caso de erro).
+    """
     conn = None
+    total_inserted = 0
+
     try:
         conn = psycopg2.connect(
             host=PG_HOST,
@@ -64,43 +71,41 @@ def save_to_postgres(filename: str,
         )
         cur = conn.cursor()
 
-        chunks = hierarchical_chunk(text, metadata, embedding_model)
-        inserted = []
-        logging.info(f"'{filename}': {len(chunks)} chunks")
-
         table = f"public.documents_{embedding_dim}"
 
-        for idx, chunk in enumerate(chunks):
+        # Consumir o generator em streaming: não acumulamos lista de chunks
+        for idx, chunk in enumerate(hierarchical_chunk_generator(text, metadata, embedding_model)):
             clean = chunk.replace("\x00", "")
             emb = generate_embedding(clean, embedding_model, embedding_dim)
+
+            # Metadata mantém todas as chaves originais + __parent e __chunk_index
             rec = {**metadata, "__parent": filename, "__chunk_index": idx}
+
             cur.execute(
                 f"INSERT INTO {table} (content, metadata, embedding) "
                 f"VALUES (%s, %s::jsonb, %s) RETURNING id",
                 (clean, json.dumps(rec, ensure_ascii=False), emb)
             )
-            doc_id = cur.fetchone()[0]
-            inserted.append({'id': doc_id, 'content': clean, 'metadata': rec})
+            _ = cur.fetchone()[0]
+            total_inserted += 1
+
+            # Liberar imediatamente variáveis de uso pesado
+            del clean
+            del emb
+            del rec
+            try:
+                torch.cuda.empty_cache()
+            except Exception:
+                pass
 
         conn.commit()
-
-        # — re-ranking se houver __query
-        query = metadata.get('__query', '')
-        if query:
-            from sentence_transformers import CrossEncoder
-            ce = CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')
-            pairs = [(query, r['content']) for r in inserted]
-            scores = ce.predict(pairs)
-            for r, s in zip(inserted, scores):
-                r['rerank_score'] = float(s)
-            inserted.sort(key=lambda x: x['rerank_score'], reverse=True)
-
-        return inserted
+        return total_inserted
 
     except Exception as e:
         logging.error(f"Erro saving to Postgres: {e}")
         if conn:
             conn.rollback()
+        raise
     finally:
         if conn:
             conn.close()
