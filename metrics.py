@@ -25,8 +25,10 @@ LAST_QUERY_RESULT_COUNT = Gauge(
     'Número de documentos retornados pela última busca RAG'
 )
 
-# Inicia servidor HTTP para expor métricas em /metrics (porta 8000)
-start_http_server(8000)
+
+def start_metrics_server(port: int = 8000) -> None:
+    """Inicia servidor HTTP para expor métricas em `/metrics`."""
+    start_http_server(port)
 
 
 def record_metrics(func):
@@ -48,3 +50,4 @@ def record_metrics(func):
         return results
 
     return wrapper
+

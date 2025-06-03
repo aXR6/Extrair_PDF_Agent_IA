@@ -73,10 +73,10 @@ Todos os modelos e dimensões são configuráveis no arquivo `.env`.
 - GIN em `tsv_full` e `metadata`
 - GIN trigram (`gin_trgm_ops`) em `title`, `author`, `type`, `__parent`
 
-### 5. Re-ranking & Métricas
+-### 5. Re-ranking & Métricas
 
-- **Cross-Encoder:** `cross-encoder/ms-marco-MiniLM-L-6-v2` para reranking de pares (query, conteúdo)
-- **Prometheus (porta 8000):**
+- **Cross-Encoder:** `cross-encoder/ms-marco-MiniLM-L-6-v2` para reranking de pares (query, conteúdo) com cache por dispositivo
+- **Prometheus:** iniciar com `start_metrics_server()` para expor métricas em `localhost:8000/metrics`
     - `rag_query_executions_total`
     - `rag_query_duration_seconds`
     - `rag_last_query_result_count`

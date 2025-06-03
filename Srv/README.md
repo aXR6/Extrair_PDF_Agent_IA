@@ -38,6 +38,7 @@ Este repositório contém um microserviço HTTP desenvolvido com [FastAPI](https
 - **Health check:** Retorna status do serviço e o modelo padrão configurado.
 - **Seleção interativa de modelo:** Menu CLI para escolher o modelo padrão antes de iniciar o servidor.
 - **Seleção de dispositivo:** No processamento local (`main.py`) é possível definir `cpu`, `gpu` ou `auto`.
+- **Métricas Prometheus:** chame `start_metrics_server()` para disponibilizar `/metrics` na porta 8000.
 
 ---
 
