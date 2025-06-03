@@ -79,6 +79,9 @@ def select_dimension(current: int) -> int:
 def process_file(path: str, strat: str, model: str, dim: int, stats: dict):
     """
     Processa um único arquivo: extrai texto, gera embeddings e salva no PostgreSQL.
+    Agora o save_to_postgres retorna a lista completa de registros inseridos,
+    para que possamos logar quantos chunks foram inseridos e (se aplicável) 
+    qual a pontuação de reranking de cada um.
     """
     filename = os.path.basename(path)
     logging.info(f"→ Processando arquivo: {filename}  |  Estratégia: {strat}  |  Embedding: {model}  |  Dimensão: {dim}")
@@ -105,12 +108,21 @@ def process_file(path: str, strat: str, model: str, dim: int, stats: dict):
 
     rec = build_record(p2, text)
     try:
-        inserted_count = save_to_postgres(
+        inserted_list = save_to_postgres(
             filename, rec['text'], rec['info'],
             model, dim
         )
         stats['processed'] += 1
-        logging.info(f"→ '{filename}' inseriu {inserted_count} chunks no banco.")
+
+        # Quantos chunks foram inseridos no total
+        total_chunks = len(inserted_list)
+        logging.info(f"→ '{filename}' inseriu {total_chunks} chunks no banco.")
+
+        # Se houve reranking (lista ordenada por 'rerank_score'), mostramos apenas as 3 primeiras scores
+        if inserted_list and 'rerank_score' in inserted_list[0]:
+            top3 = [f"{r['rerank_score']:.4f}" for r in inserted_list[:3]]
+            logging.info(f"    [Rerank] Top 3 scores de '{filename}': {', '.join(top3)}")
+
     except Exception as e:
         logging.error(f"Erro salvando '{filename}': {e}")
         stats['errors'] += 1
@@ -119,6 +131,7 @@ def process_file(path: str, strat: str, model: str, dim: int, stats: dict):
         try:
             del text
             del rec
+            del inserted_list
             import gc; gc.collect()
         except Exception:
             pass

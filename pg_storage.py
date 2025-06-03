@@ -1,5 +1,4 @@
 # pg_storage.py
-
 import os
 import logging
 import json
@@ -48,18 +47,24 @@ def generate_embedding(text: str, model_name: str, dim: int) -> list[float]:
 
     return vec
 
+
 @record_metrics
 def save_to_postgres(filename: str,
                      text: str,
                      metadata: dict,
                      embedding_model: str,
-                     embedding_dim: int) -> int:
+                     embedding_dim: int) -> list[dict]:
     """
     Insere no PostgreSQL cada chunk gerado em streaming pelo hierarchical_chunk_generator.
-    Retorna o número de chunks inseridos (ou raise em caso de erro).
+    Retorna uma lista de dicionários contendo:
+      - 'id': id gerado pelo banco para cada chunk,
+      - 'content': texto do chunk,
+      - 'metadata': metadados JSONB originais + __parent e __chunk_index.
+    Após inserir todos os chunks, se houver chave '__query' em metadata, executa re-ranking
+    com CrossEncoder e adiciona o campo 'rerank_score' em cada dicionário antes de ordenar.
     """
     conn = None
-    total_inserted = 0
+    inserted = []
 
     try:
         conn = psycopg2.connect(
@@ -73,7 +78,7 @@ def save_to_postgres(filename: str,
 
         table = f"public.documents_{embedding_dim}"
 
-        # Consumir o generator em streaming: não acumulamos lista de chunks
+        # Inserção em streaming: consome o gerador de chunks
         for idx, chunk in enumerate(hierarchical_chunk_generator(text, metadata, embedding_model)):
             clean = chunk.replace("\x00", "")
             emb = generate_embedding(clean, embedding_model, embedding_dim)
@@ -86,10 +91,10 @@ def save_to_postgres(filename: str,
                 f"VALUES (%s, %s::jsonb, %s) RETURNING id",
                 (clean, json.dumps(rec, ensure_ascii=False), emb)
             )
-            _ = cur.fetchone()[0]
-            total_inserted += 1
+            doc_id = cur.fetchone()[0]
+            inserted.append({'id': doc_id, 'content': clean, 'metadata': rec})
 
-            # Liberar imediatamente variáveis de uso pesado
+            # Limpeza imediata de objetos pesados
             del clean
             del emb
             del rec
@@ -99,13 +104,34 @@ def save_to_postgres(filename: str,
                 pass
 
         conn.commit()
-        return total_inserted
+
+        # — Re‐ranking com CrossEncoder se existir __query —
+        query = metadata.get('__query', '')
+        if query:
+            from sentence_transformers import CrossEncoder
+
+            ce = CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')
+            pairs = [(query, r['content']) for r in inserted]
+            scores = ce.predict(pairs)
+            for r, s in zip(inserted, scores):
+                r['rerank_score'] = float(s)
+            # Ordena pela pontuação de re-ranking (maior para menor)
+            inserted.sort(key=lambda x: x.get('rerank_score', 0.0), reverse=True)
+
+            # Limpa também cache do CrossEncoder
+            try:
+                torch.cuda.empty_cache()
+            except Exception:
+                pass
+
+        return inserted
 
     except Exception as e:
         logging.error(f"Erro saving to Postgres: {e}")
         if conn:
             conn.rollback()
         raise
+
     finally:
         if conn:
             conn.close()

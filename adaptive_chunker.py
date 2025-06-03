@@ -1,5 +1,4 @@
 # adaptive_chunker.py
-
 import os
 import logging
 import torch
@@ -48,6 +47,7 @@ def expand_query(text: str, top_k: int = 5) -> str:
             for lemma in syn.lemmas()[:top_k]:
                 terms.append(lemma.name().replace('_', ' '))
     return text + ' ' + ' '.join(set(terms))
+
 
 def hierarchical_chunk(text: str, metadata: dict, model_name: str = SBERT_MODEL_NAME) -> List[str]:
     """
@@ -119,9 +119,10 @@ def hierarchical_chunk(text: str, metadata: dict, model_name: str = SBERT_MODEL_
 
     return chunks
 
+
 def hierarchical_chunk_generator(text: str, metadata: dict, model_name: str = SBERT_MODEL_NAME) -> Generator[str, None, None]:
     """
-    Mesma lógica de hierarchical_chunk(...), porém devolve cada pedaço (chunk) via `yield` 
+    Mesma lógica de hierarchical_chunk(...), porém devolve cada pedaço (chunk) via `yield`
     em vez de armazenar tudo em lista. É ideal para cenários “em streaming”.
     """
     # Limpa cache da GPU antes (precaução)
