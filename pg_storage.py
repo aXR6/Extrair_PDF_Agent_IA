@@ -5,10 +5,26 @@ import json
 import psycopg2
 import torch
 from adaptive_chunker import hierarchical_chunk_generator, get_sbert_model
+from sentence_transformers import CrossEncoder
 from config import PG_HOST, PG_PORT, PG_USER, PG_PASSWORD, PG_DATABASE
 from metrics import record_metrics
 
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:128"
+
+_CE_CACHE: dict = {}
+
+def get_cross_encoder(model_name: str, device: str) -> CrossEncoder:
+    """Retorna CrossEncoder em cache para o dispositivo escolhido."""
+    key = (model_name, device)
+    if key not in _CE_CACHE:
+        try:
+            logging.info(f"Carregando CrossEncoder '{model_name}' em {device}…")
+            _CE_CACHE[key] = CrossEncoder(model_name, device=device)
+            logging.info(f"CrossEncoder '{model_name}' carregado com sucesso em {device}.")
+        except Exception as e:
+            logging.error(f"Falha ao carregar CrossEncoder '{model_name}' em {device}: {e}")
+            raise
+    return _CE_CACHE[key]
 
 def generate_embedding(text: str, model_name: str, dim: int, device: str) -> list[float]:
     """Gera embedding no dispositivo escolhido com fallback para CPU."""
@@ -120,9 +136,7 @@ def save_to_postgres(filename: str,
         # — Re‐ranking com CrossEncoder se existir __query —
         query = metadata.get('__query', '')
         if query:
-            from sentence_transformers import CrossEncoder
-
-            ce = CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2', device=device_use)
+            ce = get_cross_encoder('cross-encoder/ms-marco-MiniLM-L-6-v2', device_use)
             pairs = [(query, r['content']) for r in inserted]
             scores = ce.predict(pairs)
             for r, s in zip(inserted, scores):

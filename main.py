@@ -20,11 +20,13 @@ from extractors import extract_text
 from utils import setup_logging, is_valid_file, build_record
 from pg_storage import save_to_postgres
 from adaptive_chunker import get_sbert_model
+from metrics import start_metrics_server
 
 # Valida configuração e inicializa SBERT + logs
 validate_config()
 setup_logging()
 get_sbert_model()  # Carrega SBERT em CPU logo no início
+start_metrics_server()
 
 # Opções de menu
 STRATEGY_OPTIONS = [
@@ -61,7 +63,7 @@ def select_device(current: str) -> str:
 
 
 def clear_screen():
-    os.system("clear")
+    os.system("cls" if os.name == "nt" else "clear")
 
 
 def select_strategy(current: str) -> str:
