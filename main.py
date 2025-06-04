@@ -92,7 +92,6 @@ def select_dimension(current: int) -> int:
     c = input(f"Escolha [{current}]: ").strip()
     return DIMENSIONS.get(c, current)
 
-
 def process_file(path: str, strat: str, model: str, dim: int, device: str,
                  stats: dict, processed_root: Optional[str] = None):
     """
@@ -245,6 +244,7 @@ def main():
                     f"Processando → {basename} | Strat: {strat} | Emb: {model} | Dim: {dim} | Dev: {device}"
                 )
                 process_file(path, strat, model, dim, device, stats, d)
+
                 pbar.set_postfix({"P": stats['processed'], "E": stats['errors']})
                 # Coleta lixo após cada arquivo
                 try:

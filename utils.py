@@ -111,7 +111,6 @@ def repair_pdf(path: str) -> str:
     # fallback: retorna original
     return path
 
-
 def move_to_processed(path: str, root_dir: str) -> None:
     """Move arquivo processado para a subpasta 'processado'."""
     dest_dir = os.path.join(root_dir, "processado")
