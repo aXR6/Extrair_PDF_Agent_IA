@@ -10,7 +10,8 @@ Pipeline completo para processamento de documentos PDF, DOCX e imagens, incluind
 - **Indexação & Busca Híbrida (RAG):** PostgreSQL + pgvector usando tabelas dedicadas por dimensão
 - **Re-ranking:** Cross-Encoder (ms-marco) para maior precisão
 - **Monitoramento:** Prometheus (latência, contagem de buscas, tamanho dos resultados)
-- **CLI Interativo:** Seleção de estratégia, modelo, dimensão, modo verboso, processamento em lote com barra de progresso e estatísticas em tempo real
+- **CLI Interativo:** Seleção de estratégia, modelo, dimensão **e dispositivo (cpu/gpu/auto)**, modo verboso, processamento em lote com barra de progresso e estatísticas em tempo real
+- **Organização:** Arquivos processados são movidos para a subpasta `processado`
 
 ---
 
@@ -73,10 +74,10 @@ Todos os modelos e dimensões são configuráveis no arquivo `.env`.
 - GIN em `tsv_full` e `metadata`
 - GIN trigram (`gin_trgm_ops`) em `title`, `author`, `type`, `__parent`
 
-### 5. Re-ranking & Métricas
+-### 5. Re-ranking & Métricas
 
-- **Cross-Encoder:** `cross-encoder/ms-marco-MiniLM-L-6-v2` para reranking de pares (query, conteúdo)
-- **Prometheus (porta 8000):**
+- **Cross-Encoder:** `cross-encoder/ms-marco-MiniLM-L-6-v2` para reranking de pares (query, conteúdo) com cache por dispositivo
+- **Prometheus:** iniciar com `start_metrics_server()` para expor métricas em `localhost:8000/metrics`
     - `rag_query_executions_total`
     - `rag_query_duration_seconds`
     - `rag_last_query_result_count`
@@ -87,7 +88,9 @@ Todos os modelos e dimensões são configuráveis no arquivo `.env`.
 - Selecionar Estratégia de Extração
 - Selecionar Embedding Model
 - Selecionar Dimensão
+- Selecionar Dispositivo (CPU/GPU/Auto)
 - Processar Arquivo / Pasta (inclui imagens)
+- Mover arquivos concluídos para a subpasta `processado`
 - Sair
 
 **Flags:**
@@ -221,7 +224,7 @@ python3 main.py [--verbose]
 
 Nas versões anteriores, experimentamos “Morto” (SIGKILL) ao processar grande quantidade de arquivos, devido a uso excessivo de memória GPU e fragmentação de objetos. Para resolver esses problemas, aplicamos as seguintes melhorias:
 
-### 1. Forçar SBERT em CPU (`adaptive_chunker.py`)
+### 1. Seleção de Dispositivo e Cache (`adaptive_chunker.py`)
 
 **Antes:**
 ```python
@@ -234,7 +237,7 @@ Carregava SBERT na GPU sempre que disponível, gerando OOM.
 ```python
 SentenceTransformer(model_name, device="cpu")
 ```
-Força CPU em todas as chamadas, eliminando o uso de VRAM e evitando erros “CUDA out of memory”.
+Modelo carregado em CPU por padrão, mas agora o CLI permite escolher `cpu`, `gpu` ou `auto` e o cache diferencia por dispositivo.
 
 ### 2. Inference sem gradiente e limpeza agressiva (`pg_storage.py`)
 
