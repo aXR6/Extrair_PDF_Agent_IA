@@ -26,17 +26,22 @@ except LookupError:
 # Cache de instâncias SBERT
 _SBERT_CACHE: dict = {}
 
-def get_sbert_model(model_name: str = SBERT_MODEL_NAME) -> SentenceTransformer:
-    """Carrega e retorna instância SentenceTransformer em cache, FORÇANDO CPU."""
-    if model_name not in _SBERT_CACHE:
+
+def get_sbert_model(
+    model_name: str = SBERT_MODEL_NAME,
+    device: str = "cpu",
+) -> SentenceTransformer:
+    """Carrega e retorna SentenceTransformer em cache para o dispositivo escolhido."""
+    key = (model_name, device)
+    if key not in _SBERT_CACHE:
         try:
-            logging.info(f"Carregando SBERT '{model_name}' em CPU (force).")
-            _SBERT_CACHE[model_name] = SentenceTransformer(model_name, device="cpu")
-            logging.info(f"SBERT '{model_name}' carregado com sucesso em CPU.")
+            logging.info(f"Carregando SBERT '{model_name}' em {device}…")
+            _SBERT_CACHE[key] = SentenceTransformer(model_name, device=device)
+            logging.info(f"SBERT '{model_name}' carregado com sucesso em {device}.")
         except Exception as e:
-            logging.error(f"Falha ao carregar SBERT '{model_name}': {e}")
+            logging.error(f"Falha ao carregar SBERT '{model_name}' em {device}: {e}")
             raise
-    return _SBERT_CACHE[model_name]
+    return _SBERT_CACHE[key]
 
 def expand_query(text: str, top_k: int = 5) -> str:
     """Gera termos de expansão usando sinônimos do WordNet."""
@@ -49,7 +54,8 @@ def expand_query(text: str, top_k: int = 5) -> str:
     return text + ' ' + ' '.join(set(terms))
 
 
-def hierarchical_chunk(text: str, metadata: dict, model_name: str = SBERT_MODEL_NAME) -> List[str]:
+def hierarchical_chunk(text: str, metadata: dict, model_name: str = SBERT_MODEL_NAME,
+                       device: str = "cpu") -> List[str]:
     """
     Chunking inteligente baseado em parágrafos (retorna lista completa).
     - Detecta parágrafos completos via filter_paragraphs.
@@ -60,7 +66,7 @@ def hierarchical_chunk(text: str, metadata: dict, model_name: str = SBERT_MODEL_
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
 
-    model = get_sbert_model(model_name)
+    model = get_sbert_model(model_name, device=device)
     tokenizer = model.tokenizer
     try:
         max_tokens = model.max_seq_length
@@ -120,7 +126,9 @@ def hierarchical_chunk(text: str, metadata: dict, model_name: str = SBERT_MODEL_
     return chunks
 
 
-def hierarchical_chunk_generator(text: str, metadata: dict, model_name: str = SBERT_MODEL_NAME) -> Generator[str, None, None]:
+def hierarchical_chunk_generator(text: str, metadata: dict,
+                                 model_name: str = SBERT_MODEL_NAME,
+                                 device: str = "cpu") -> Generator[str, None, None]:
     """
     Mesma lógica de hierarchical_chunk(...), porém devolve cada pedaço (chunk) via `yield`
     em vez de armazenar tudo em lista. É ideal para cenários “em streaming”.
@@ -129,7 +137,7 @@ def hierarchical_chunk_generator(text: str, metadata: dict, model_name: str = SB
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
 
-    model = get_sbert_model(model_name)
+    model = get_sbert_model(model_name, device=device)
     tokenizer = model.tokenizer
     try:
         max_tokens = model.max_seq_length

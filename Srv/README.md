@@ -34,9 +34,11 @@ Este repositório contém um microserviço HTTP desenvolvido com [FastAPI](https
 ## Funcionalidades
 
 - **Listagem de modelos:** Endpoint para retornar a lista de modelos de embedding configurados via variável de ambiente.
-- **Geração de embeddings:** Gera embeddings a partir de texto(s) usando Sentence Transformers, carregando os modelos em CPU por padrão.
+- **Geração de embeddings:** Gera embeddings a partir de texto(s) usando Sentence Transformers, carregando os modelos no dispositivo escolhido (`cpu`, `gpu` ou `auto`).
 - **Health check:** Retorna status do serviço e o modelo padrão configurado.
 - **Seleção interativa de modelo:** Menu CLI para escolher o modelo padrão antes de iniciar o servidor.
+- **Seleção de dispositivo:** No processamento local (`main.py`) é possível definir `cpu`, `gpu` ou `auto`.
+- **Métricas Prometheus:** chame `start_metrics_server()` para disponibilizar `/metrics` na porta 8000.
 
 ---
 
