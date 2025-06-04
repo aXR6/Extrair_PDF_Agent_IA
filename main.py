@@ -2,6 +2,7 @@
 import os
 import sys
 import argparse
+from typing import Optional
 import time
 import logging
 from tqdm import tqdm
@@ -17,7 +18,7 @@ from config import (
     OCR_THRESHOLD, validate_config
 )
 from extractors import extract_text
-from utils import setup_logging, is_valid_file, build_record
+from utils import setup_logging, is_valid_file, build_record, move_to_processed
 from pg_storage import save_to_postgres
 from adaptive_chunker import get_sbert_model
 from metrics import start_metrics_server
@@ -91,8 +92,8 @@ def select_dimension(current: int) -> int:
     c = input(f"Escolha [{current}]: ").strip()
     return DIMENSIONS.get(c, current)
 
-
-def process_file(path: str, strat: str, model: str, dim: int, device: str, stats: dict):
+def process_file(path: str, strat: str, model: str, dim: int, device: str,
+                 stats: dict, processed_root: Optional[str] = None):
     """
     Processa um único arquivo: extrai texto, gera embeddings e salva no PostgreSQL.
     Agora o save_to_postgres retorna a lista completa de registros inseridos,
@@ -129,6 +130,9 @@ def process_file(path: str, strat: str, model: str, dim: int, device: str, stats
             model, dim, device
         )
         stats['processed'] += 1
+
+        if processed_root:
+            move_to_processed(p2, processed_root)
 
         # Quantos chunks foram inseridos no total
         total_chunks = len(inserted_list)
@@ -200,7 +204,8 @@ def main():
                 continue
 
             start = time.perf_counter()
-            process_file(f, strat, model, dim, device, stats)
+            process_file(f, strat, model, dim, device, stats,
+                         os.path.dirname(f))
             dt = time.perf_counter() - start
 
             print(f"\n→ Tempo gasto: {dt:.2f}s  •  Processados: {stats['processed']}  •  Erros: {stats['errors']}")
@@ -238,7 +243,8 @@ def main():
                 pbar.set_description(
                     f"Processando → {basename} | Strat: {strat} | Emb: {model} | Dim: {dim} | Dev: {device}"
                 )
-                process_file(path, strat, model, dim, device, stats)
+                process_file(path, strat, model, dim, device, stats, d)
+
                 pbar.set_postfix({"P": stats['processed'], "E": stats['errors']})
                 # Coleta lixo após cada arquivo
                 try:

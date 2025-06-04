@@ -110,3 +110,22 @@ def repair_pdf(path: str) -> str:
 
     # fallback: retorna original
     return path
+
+def move_to_processed(path: str, root_dir: str) -> None:
+    """Move arquivo processado para a subpasta 'processado'."""
+    dest_dir = os.path.join(root_dir, "processado")
+    try:
+        os.makedirs(dest_dir, exist_ok=True)
+        base = os.path.basename(path)
+        dest = os.path.join(dest_dir, base)
+        if os.path.exists(dest):
+            name, ext = os.path.splitext(base)
+            idx = 1
+            new_dest = os.path.join(dest_dir, f"{name}_{idx}{ext}")
+            while os.path.exists(new_dest):
+                idx += 1
+                new_dest = os.path.join(dest_dir, f"{name}_{idx}{ext}")
+            dest = new_dest
+        os.replace(path, dest)
+    except Exception as e:
+        logging.error(f"Falha ao mover '{path}' para '{dest_dir}': {e}")

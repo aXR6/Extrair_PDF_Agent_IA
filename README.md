@@ -11,6 +11,7 @@ Pipeline completo para processamento de documentos PDF, DOCX e imagens, incluind
 - **Re-ranking:** Cross-Encoder (ms-marco) para maior precisão
 - **Monitoramento:** Prometheus (latência, contagem de buscas, tamanho dos resultados)
 - **CLI Interativo:** Seleção de estratégia, modelo, dimensão **e dispositivo (cpu/gpu/auto)**, modo verboso, processamento em lote com barra de progresso e estatísticas em tempo real
+- **Organização:** Arquivos processados são movidos para a subpasta `processado`
 
 ---
 
@@ -89,6 +90,7 @@ Todos os modelos e dimensões são configuráveis no arquivo `.env`.
 - Selecionar Dimensão
 - Selecionar Dispositivo (CPU/GPU/Auto)
 - Processar Arquivo / Pasta (inclui imagens)
+- Mover arquivos concluídos para a subpasta `processado`
 - Sair
 
 **Flags:**
