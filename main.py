@@ -20,13 +20,11 @@ from config import (
 from extractors import extract_text
 from utils import setup_logging, is_valid_file, build_record, move_to_processed
 from pg_storage import save_to_postgres
-from adaptive_chunker import get_sbert_model
 from metrics import start_metrics_server
 
-# Valida configuração e inicializa SBERT + logs
+# Valida configuração e inicializa logs e métricas
 validate_config()
 setup_logging()
-get_sbert_model()  # Carrega SBERT em CPU logo no início
 start_metrics_server()
 
 # Opções de menu
@@ -244,7 +242,6 @@ def main():
                     f"Processando → {basename} | Strat: {strat} | Emb: {model} | Dim: {dim} | Dev: {device}"
                 )
                 process_file(path, strat, model, dim, device, stats, d)
-
                 pbar.set_postfix({"P": stats['processed'], "E": stats['errors']})
                 # Coleta lixo após cada arquivo
                 try:

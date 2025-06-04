@@ -54,7 +54,8 @@ def expand_query(text: str, top_k: int = 5) -> str:
     return text + ' ' + ' '.join(set(terms))
 
 
-def hierarchical_chunk(text: str, metadata: dict, model_name: str = SBERT_MODEL_NAME) -> List[str]:
+def hierarchical_chunk(text: str, metadata: dict, model_name: str = SBERT_MODEL_NAME,
+                       device: str = "cpu") -> List[str]:
     """
     Chunking inteligente baseado em parágrafos (retorna lista completa).
     - Detecta parágrafos completos via filter_paragraphs.
@@ -65,7 +66,7 @@ def hierarchical_chunk(text: str, metadata: dict, model_name: str = SBERT_MODEL_
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
 
-    model = get_sbert_model(model_name)
+    model = get_sbert_model(model_name, device=device)
     tokenizer = model.tokenizer
     try:
         max_tokens = model.max_seq_length
@@ -125,7 +126,9 @@ def hierarchical_chunk(text: str, metadata: dict, model_name: str = SBERT_MODEL_
     return chunks
 
 
-def hierarchical_chunk_generator(text: str, metadata: dict, model_name: str = SBERT_MODEL_NAME) -> Generator[str, None, None]:
+def hierarchical_chunk_generator(text: str, metadata: dict,
+                                 model_name: str = SBERT_MODEL_NAME,
+                                 device: str = "cpu") -> Generator[str, None, None]:
     """
     Mesma lógica de hierarchical_chunk(...), porém devolve cada pedaço (chunk) via `yield`
     em vez de armazenar tudo em lista. É ideal para cenários “em streaming”.
@@ -134,7 +137,7 @@ def hierarchical_chunk_generator(text: str, metadata: dict, model_name: str = SB
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
 
-    model = get_sbert_model(model_name)
+    model = get_sbert_model(model_name, device=device)
     tokenizer = model.tokenizer
     try:
         max_tokens = model.max_seq_length

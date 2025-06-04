@@ -235,9 +235,9 @@ Carregava SBERT na GPU sempre que disponível, gerando OOM.
 
 **Agora:**
 ```python
-SentenceTransformer(model_name, device="cpu")
+SentenceTransformer(model_name, device=selected_device)
 ```
-Modelo carregado em CPU por padrão, mas agora o CLI permite escolher `cpu`, `gpu` ou `auto` e o cache diferencia por dispositivo.
+SBERT é carregado apenas uma vez no dispositivo escolhido (`cpu`, `gpu` ou `auto`), com cache separado por dispositivo.
 
 ### 2. Inference sem gradiente e limpeza agressiva (`pg_storage.py`)
 
@@ -268,7 +268,7 @@ Coleta ao final de cada arquivo no loop de pasta: chama `gc.collect()` dentro do
 
 ```yaml
 feat: otimizações de memória e estabilidade no processamento em lote
-- FORÇAR SBERT a rodar em CPU (evita OOM na GPU)
+- Carregar SBERT no dispositivo escolhido (CPU/GPU) com cache por dispositivo
 - Adicionar torch.no_grad() no encode para não manter gradientes
 - Incluir torch.cuda.empty_cache() após cada embedding
 - Chamar del text, del rec e gc.collect() em main.py para liberar memória RAM

@@ -107,7 +107,7 @@ def save_to_postgres(filename: str,
         table = f"public.documents_{embedding_dim}"
 
         # Inserção em streaming: consome o gerador de chunks
-        for idx, chunk in enumerate(hierarchical_chunk_generator(text, metadata, embedding_model)):
+        for idx, chunk in enumerate(hierarchical_chunk_generator(text, metadata, embedding_model, device_use)):
             clean = chunk.replace("\x00", "")
             emb = generate_embedding(clean, embedding_model, embedding_dim, device_use)
 
