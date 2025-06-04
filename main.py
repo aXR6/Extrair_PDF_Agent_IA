@@ -218,12 +218,16 @@ def main():
                 continue
 
             # Coleta de todos os PDFs, DOCX e Imagens na pasta recursivamente
-            files = [
-                os.path.join(root, fname)
-                for root, _, files_ in os.walk(d)
-                for fname in files_
-                if fname.lower().endswith((".pdf", ".docx", ".png", ".jpg", ".jpeg", ".tiff"))
-            ]
+            files = []
+            for root, dirs, files_ in os.walk(d):
+                # ignora subpastas chamadas 'processado'
+                if "processado" in dirs:
+                    dirs.remove("processado")
+                for fname in files_:
+                    if fname.lower().endswith((
+                        ".pdf", ".docx", ".png", ".jpg", ".jpeg", ".tiff"
+                    )):
+                        files.append(os.path.join(root, fname))
 
             total_files = len(files)
             print(f"Total de arquivos encontrados: {total_files}")
