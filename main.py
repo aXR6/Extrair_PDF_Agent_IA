@@ -90,7 +90,6 @@ def select_dimension(current: int) -> int:
     c = input(f"Escolha [{current}]: ").strip()
     return DIMENSIONS.get(c, current)
 
-
 def process_file(path: str, strat: str, model: str, dim: int, device: str,
                  stats: dict, processed_root: Optional[str] = None):
     """
