@@ -8,7 +8,6 @@ import fitz
 import pdfplumber
 import pytesseract
 from pdfminer.high_level import extract_text as pdfminer_extract_text
-from tika import parser
 from langchain_community.document_loaders import (
     PyPDFLoader,
     PDFMinerLoader,
@@ -84,10 +83,6 @@ class PDFPlumberStrategy:
         return "\n".join(texts)
 
 
-class TikaStrategy:
-    def extract(self, path: str) -> str:
-        result = parser.from_file(path)
-        return result.get("content", "") or ""
 
 
 class PyMuPDF4LLMStrategy:
@@ -120,7 +115,6 @@ STRATEGIES_MAP = {
     "unstructured": UnstructuredStrategy(),
     "ocr": OCRStrategy(),
     "plumber": PDFPlumberStrategy(),
-    "tika": TikaStrategy(),
     "pymupdf4llm": PyMuPDF4LLMStrategy(),
     "image": ImageOCRStrategy(),
 }
@@ -167,13 +161,6 @@ def extract_text(path: str, strategy: str) -> str:
     except Exception:
         pass
 
-    try:
-        parsed = parser.from_file(path)
-        txt = parsed.get("content", "") or ""
-        if len(txt.strip()) > OCR_THRESHOLD:
-            return txt
-    except Exception:
-        pass
 
     try:
         with pdfplumber.open(path) as pdf:
