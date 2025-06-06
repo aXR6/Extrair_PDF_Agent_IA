@@ -29,6 +29,7 @@ Pipeline completo para processamento de documentos PDF, DOCX e imagens, incluind
 - PDFMiner Low-Level (pdfminer.six)
 - Unstructured (.docx)
 - OCR Hybrid para PDF (pytesseract)
+- A variável `TESSERACT_CONFIG` permite ajustar parâmetros do Tesseract
 - ImageOCR (PIL + pytesseract)
 - PDFPlumber
 - PyMuPDF4LLM (Markdown)
@@ -122,7 +123,6 @@ sudo apt install -y \
         tesseract-ocr-eng tesseract-ocr-por \
         libpoppler-cpp-dev pkg-config \
         imagemagick \
-        default-jre \
         libmagic1 \
         fontconfig
 ```
@@ -184,6 +184,8 @@ DIM_MPNET=768
 # OCR
 OCR_THRESHOLD=100
 OCR_LANGUAGES=eng+por
+TESSERACT_CONFIG=""
+PDF2IMAGE_TIMEOUT=600
 
 # Chunking
 CHUNK_SIZE=1024
