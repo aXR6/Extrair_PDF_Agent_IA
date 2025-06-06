@@ -28,7 +28,9 @@ def build_record(path: str, text: str) -> dict:
 
 def is_valid_file(path: str) -> bool:
     # aceita PDF, DOCX e formatos de imagem
-    valid_ext = ('.pdf', '.docx', '.png', '.jpg', '.jpeg', '.tiff')
+    valid_ext = (
+        '.pdf', '.docx', '.png', '.jpg', '.jpeg', '.tiff', '.tif', '.bmp'
+    )
     if not os.path.isfile(path) or not path.lower().endswith(valid_ext):
         logging.error(f"Arquivo inválido: {path}")
         return False
@@ -84,6 +86,10 @@ def repair_pdf(path: str) -> str:
         return tmp0.name
     except Exception as e:
         logging.warning(f"mutool clean falhou em '{path}': {e}")
+        try:
+            os.remove(tmp0.name)
+        except Exception:
+            pass
 
     # pikepdf
     try:
@@ -93,6 +99,10 @@ def repair_pdf(path: str) -> str:
         return tmp1.name
     except Exception as e:
         logging.warning(f"pikepdf falhou em '{path}': {e}")
+        try:
+            os.remove(tmp1.name)
+        except Exception:
+            pass
 
     # Ghostscript
     try:
@@ -107,6 +117,10 @@ def repair_pdf(path: str) -> str:
         return tmp2.name
     except Exception as e:
         logging.warning(f"Ghostscript falhou em '{path}': {e}")
+        try:
+            os.remove(tmp2.name)
+        except Exception:
+            pass
 
     # fallback: retorna original
     return path
