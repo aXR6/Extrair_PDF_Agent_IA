@@ -220,9 +220,9 @@ def main():
             # Coleta de todos os PDFs, DOCX e Imagens na pasta recursivamente
             files = []
             for root, dirs, files_ in os.walk(d):
-                # ignora subpastas chamadas 'processado'
-                if "processado" in dirs:
-                    dirs.remove("processado")
+                # ignora subpastas chamadas 'Processado'
+                if "Processado" in dirs:
+                    dirs.remove("Processado")
                 for fname in files_:
                     if fname.lower().endswith((
                         ".pdf", ".docx", ".png", ".jpg", ".jpeg", ".tiff"
