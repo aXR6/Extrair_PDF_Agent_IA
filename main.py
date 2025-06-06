@@ -30,7 +30,7 @@ start_metrics_server()
 # Opções de menu
 STRATEGY_OPTIONS = [
     "pypdf", "pdfminer", "pdfminer-low", "unstructured",
-    "ocr", "plumber", "tika", "pymupdf4llm"
+    "ocr", "plumber", "pymupdf4llm"
 ]
 EMBED_MODELS = {
     "1": OLLAMA_EMBEDDING_MODEL,
@@ -225,7 +225,8 @@ def main():
                     dirs.remove("processado")
                 for fname in files_:
                     if fname.lower().endswith((
-                        ".pdf", ".docx", ".png", ".jpg", ".jpeg", ".tiff"
+                        ".pdf", ".docx", ".png", ".jpg", ".jpeg", ".tiff",
+                        ".tif", ".bmp"
                     )):
                         files.append(os.path.join(root, fname))
 

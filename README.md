@@ -4,7 +4,7 @@
 
 Pipeline completo para processamento de documentos PDF, DOCX e imagens, incluindo:
 
-- **Extração de Texto:** Diversas estratégias (PyPDFLoader, PDFMinerLoader, PDFMiner Low-Level, Unstructured, OCR para PDF, OCR para Imagens, PDFPlumber, Tika, PyMuPDF4LLM)
+- **Extração de Texto:** Diversas estratégias (PyPDFLoader, PDFMinerLoader, PDFMiner Low-Level, Unstructured, OCR para PDF, OCR para Imagens, PDFPlumber, PyMuPDF4LLM)
 - **Chunking Inteligente:** Filtragem de parágrafos, reconhecimento de headings, agrupamento, sliding window com overlap configurável e fallback para parágrafos longos
 - **Embeddings Vetoriais:** Suporte a múltiplos modelos (Ollama, Serafim-PT-IR, MPNet, MiniLM) com padding e truncation automáticos
 - **Indexação & Busca Híbrida (RAG):** PostgreSQL + pgvector usando tabelas dedicadas por dimensão
@@ -29,9 +29,9 @@ Pipeline completo para processamento de documentos PDF, DOCX e imagens, incluind
 - PDFMiner Low-Level (pdfminer.six)
 - Unstructured (.docx)
 - OCR Hybrid para PDF (pytesseract)
+- A variável `TESSERACT_CONFIG` permite ajustar parâmetros do Tesseract
 - ImageOCR (PIL + pytesseract)
 - PDFPlumber
-- Apache Tika
 - PyMuPDF4LLM (Markdown)
 
 ### 2. Chunking Inteligente
@@ -123,7 +123,6 @@ sudo apt install -y \
         tesseract-ocr-eng tesseract-ocr-por \
         libpoppler-cpp-dev pkg-config \
         imagemagick \
-        default-jre \
         libmagic1 \
         fontconfig
 ```
@@ -185,6 +184,8 @@ DIM_MPNET=768
 # OCR
 OCR_THRESHOLD=100
 OCR_LANGUAGES=eng+por
+TESSERACT_CONFIG=""
+PDF2IMAGE_TIMEOUT=600
 
 # Chunking
 CHUNK_SIZE=1024

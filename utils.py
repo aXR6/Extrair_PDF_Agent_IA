@@ -10,6 +10,7 @@ import fitz
 import pikepdf
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 
+from contextlib import contextmanager
 from config import CHUNK_SIZE, CHUNK_OVERLAP, SEPARATORS
 
 def setup_logging():
@@ -28,7 +29,9 @@ def build_record(path: str, text: str) -> dict:
 
 def is_valid_file(path: str) -> bool:
     # aceita PDF, DOCX e formatos de imagem
-    valid_ext = ('.pdf', '.docx', '.png', '.jpg', '.jpeg', '.tiff')
+    valid_ext = (
+        '.pdf', '.docx', '.png', '.jpg', '.jpeg', '.tiff', '.bmp', '.tif'
+    )
     if not os.path.isfile(path) or not path.lower().endswith(valid_ext):
         logging.error(f"Arquivo inválido: {path}")
         return False
@@ -69,47 +72,54 @@ def chunk_text(text: str, metadata: dict) -> List[str]:
             chunks.extend(sub or [p])
     return chunks
 
-def repair_pdf(path: str) -> str:
-    """
-    Tenta consertar o PDF em múltiplas etapas: mutool, pikepdf, Ghostscript.
-    Retorna o caminho para um arquivo temporário reparado ou o original.
-    """
-    # mutool clean
+@contextmanager
+def repair_pdf(path: str):
+    """Conserta o PDF em arquivo temporário, removendo-o após uso."""
+    tmp_path = None
     try:
-        tmp0 = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
-        subprocess.run(
-            ["mutool", "clean", "-d", path, tmp0.name],
-            check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-        )
-        return tmp0.name
-    except Exception as e:
-        logging.warning(f"mutool clean falhou em '{path}': {e}")
+        try:
+            tmp0 = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
+            subprocess.run(
+                ["mutool", "clean", "-d", path, tmp0.name],
+                check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+            )
+            tmp_path = tmp0.name
+        except Exception as e:
+            logging.warning(f"mutool clean falhou em '{path}': {e}")
 
-    # pikepdf
-    try:
-        tmp1 = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
-        with pikepdf.Pdf.open(path) as pdf:
-            pdf.save(tmp1.name)
-        return tmp1.name
-    except Exception as e:
-        logging.warning(f"pikepdf falhou em '{path}': {e}")
+        if tmp_path is None:
+            try:
+                tmp1 = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
+                with pikepdf.Pdf.open(path) as pdf:
+                    pdf.save(tmp1.name)
+                tmp_path = tmp1.name
+            except Exception as e:
+                logging.warning(f"pikepdf falhou em '{path}': {e}")
 
-    # Ghostscript
-    try:
-        tmp2 = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
-        cmd = [
-            "gs", "-q", "-dNOPAUSE", "-dBATCH",
-            "-sDEVICE=pdfwrite", "-dCompatibilityLevel=1.4",
-            "-dPDFSETTINGS=/prepress",
-            f"-sOutputFile={tmp2.name}", path
-        ]
-        subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        return tmp2.name
-    except Exception as e:
-        logging.warning(f"Ghostscript falhou em '{path}': {e}")
+        if tmp_path is None:
+            try:
+                tmp2 = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
+                cmd = [
+                    "gs", "-q", "-dNOPAUSE", "-dBATCH",
+                    "-sDEVICE=pdfwrite", "-dCompatibilityLevel=1.4",
+                    "-dPDFSETTINGS=/prepress",
+                    f"-sOutputFile={tmp2.name}", path
+                ]
+                subprocess.run(
+                    cmd, check=True,
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                )
+                tmp_path = tmp2.name
+            except Exception as e:
+                logging.warning(f"Ghostscript falhou em '{path}': {e}")
 
-    # fallback: retorna original
-    return path
+        yield tmp_path or path
+    finally:
+        if tmp_path:
+            try:
+                os.remove(tmp_path)
+            except Exception:
+                pass
 
 def move_to_processed(path: str, root_dir: str) -> None:
     """Move arquivo processado para a subpasta 'processado'."""
