@@ -8,7 +8,6 @@ import fitz
 import pdfplumber
 import pytesseract
 from pdfminer.high_level import extract_text as pdfminer_extract_text
-from tika import parser
 from langchain_community.document_loaders import (
     PyPDFLoader,
     PDFMinerLoader,
@@ -16,7 +15,12 @@ from langchain_community.document_loaders import (
 )
 from PIL import Image
 
-from config import OCR_LANGUAGES, OCR_THRESHOLD
+from config import (
+    OCR_LANGUAGES,
+    OCR_THRESHOLD,
+    PDF2IMAGE_TIMEOUT,
+    TESSERACT_CONFIG,
+)
 from utils import repair_pdf
 
 
@@ -65,9 +69,13 @@ class OCRStrategy:
 
             # Caso contrário, usa OCR em imagem
             from pdf2image import convert_from_path
-            images = convert_from_path(path, dpi=300)
+            images = convert_from_path(
+                path, dpi=300, timeout=PDF2IMAGE_TIMEOUT
+            )
             return "\n\n".join(
-                pytesseract.image_to_string(img, lang=OCR_LANGUAGES)
+                pytesseract.image_to_string(
+                    img, lang=OCR_LANGUAGES, config=TESSERACT_CONFIG
+                )
                 for img in images
             )
         except Exception as e:
@@ -84,10 +92,6 @@ class PDFPlumberStrategy:
         return "\n".join(texts)
 
 
-class TikaStrategy:
-    def extract(self, path: str) -> str:
-        result = parser.from_file(path)
-        return result.get("content", "") or ""
 
 
 class PyMuPDF4LLMStrategy:
@@ -104,7 +108,9 @@ class ImageOCRStrategy:
     def extract(self, path: str) -> str:
         try:
             img = Image.open(path)
-            return pytesseract.image_to_string(img, lang=OCR_LANGUAGES)
+            return pytesseract.image_to_string(
+                img, lang=OCR_LANGUAGES, config=TESSERACT_CONFIG
+            )
         except Exception as e:
             logging.error(f"Erro ImageOCRStrategy: {e}")
             return ""
@@ -120,7 +126,6 @@ STRATEGIES_MAP = {
     "unstructured": UnstructuredStrategy(),
     "ocr": OCRStrategy(),
     "plumber": PDFPlumberStrategy(),
-    "tika": TikaStrategy(),
     "pymupdf4llm": PyMuPDF4LLMStrategy(),
     "image": ImageOCRStrategy(),
 }
@@ -167,13 +172,6 @@ def extract_text(path: str, strategy: str) -> str:
     except Exception:
         pass
 
-    try:
-        parsed = parser.from_file(path)
-        txt = parsed.get("content", "") or ""
-        if len(txt.strip()) > OCR_THRESHOLD:
-            return txt
-    except Exception:
-        pass
 
     try:
         with pdfplumber.open(path) as pdf:
@@ -207,9 +205,13 @@ def extract_text(path: str, strategy: str) -> str:
 
     try:
         from pdf2image import convert_from_path
-        images = convert_from_path(path, dpi=300)
+        images = convert_from_path(
+            path, dpi=300, timeout=PDF2IMAGE_TIMEOUT
+        )
         return "\n\n".join(
-            pytesseract.image_to_string(img, lang=OCR_LANGUAGES)
+            pytesseract.image_to_string(
+                img, lang=OCR_LANGUAGES, config=TESSERACT_CONFIG
+            )
             for img in images
         )
     except Exception as e:
