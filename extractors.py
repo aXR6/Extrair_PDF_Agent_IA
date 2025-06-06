@@ -3,6 +3,7 @@ import logging
 import subprocess
 import tempfile
 import shutil
+import os
 
 import fitz
 import pdfplumber
