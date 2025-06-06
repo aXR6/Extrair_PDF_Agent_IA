@@ -10,7 +10,6 @@ PyPDF2
 PyMuPDF
 python-docx
 pdfplumber
-tika
 unstructured
 pymupdf4llm
 
