@@ -225,7 +225,8 @@ def main():
                     dirs.remove("Processado")
                 for fname in files_:
                     if fname.lower().endswith((
-                        ".pdf", ".docx", ".png", ".jpg", ".jpeg", ".tiff"
+                        ".pdf", ".docx", ".png", ".jpg", ".jpeg", ".tiff",
+                        ".tif", ".bmp"
                     )):
                         files.append(os.path.join(root, fname))
 

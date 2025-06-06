@@ -3,6 +3,7 @@ import logging
 import subprocess
 import tempfile
 import shutil
+import os
 
 import fitz
 import pdfplumber
@@ -140,7 +141,7 @@ def extract_text(path: str, strategy: str) -> str:
     """
     lower = path.lower()
     # Imagens --> OCR direto
-    if lower.endswith((".png", ".jpg", ".jpeg", ".tiff", ".bmp")):
+    if lower.endswith((".png", ".jpg", ".jpeg", ".tiff", ".tif", ".bmp")):
         return STRATEGIES_MAP["image"].extract(path)
 
     # DOCX --> Unstructured
@@ -148,72 +149,82 @@ def extract_text(path: str, strategy: str) -> str:
         return STRATEGIES_MAP["unstructured"].extract(path)
 
     # PDF --> reparar antes
-    path = repair_pdf(path)
-
-    # 1) Estratégia primária
-    loader = STRATEGIES_MAP.get(strategy)
-    text = ""
-    if loader:
-        try:
-            text = loader.extract(path)
-        except Exception as e:
-            logging.warning(f"Loader '{strategy}' falhou: {e}")
-    else:
-        logging.error(f"Estratégia desconhecida: {strategy}")
-
-    if len(text.strip()) > OCR_THRESHOLD:
-        return text
-
-    # 2) Fallbacks para PDF
+    repaired = repair_pdf(path)
     try:
-        txt = pdfminer_extract_text(path)
-        if len(txt.strip()) > OCR_THRESHOLD:
-            return txt
-    except Exception:
-        pass
+        # 1) Estratégia primária
+        loader = STRATEGIES_MAP.get(strategy)
+        text = ""
+        if loader:
+            try:
+                text = loader.extract(repaired)
+            except Exception as e:
+                logging.warning(f"Loader '{strategy}' falhou: {e}")
+        else:
+            logging.error(f"Estratégia desconhecida: {strategy}")
 
+        if len(text.strip()) > OCR_THRESHOLD:
+            return text
 
-    try:
-        with pdfplumber.open(path) as pdf:
-            txt = "\n".join(page.extract_text() or "" for page in pdf.pages)
-        if len(txt.strip()) > OCR_THRESHOLD:
-            return txt
-    except Exception:
-        pass
-
-    if shutil.which("pdftotext"):
+        # 2) Fallbacks para PDF
         try:
+            txt = pdfminer_extract_text(repaired)
+            if len(txt.strip()) > OCR_THRESHOLD:
+                return txt
+        except Exception:
+            pass
+
+        try:
+            with pdfplumber.open(repaired) as pdf:
+                txt = "\n".join(page.extract_text() or "" for page in pdf.pages)
+            if len(txt.strip()) > OCR_THRESHOLD:
+                return txt
+        except Exception:
+            pass
+
+        if shutil.which("pdftotext"):
             tmp = tempfile.NamedTemporaryFile(suffix=".txt", delete=False)
-            subprocess.run([
-                "pdftotext", "-layout", path, tmp.name
-            ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            txt = open(tmp.name, encoding="utf-8", errors="ignore").read()
-            if len(txt.strip()) > OCR_THRESHOLD:
-                return txt
-        except Exception:
-            pass
-    else:
-        try:
-            import pdftotext
-            with open(path, "rb") as f:
-                pdf_doc = pdftotext.PDF(f)
-            txt = "\n\n".join(pdf_doc)
-            if len(txt.strip()) > OCR_THRESHOLD:
-                return txt
-        except Exception:
-            pass
+            try:
+                subprocess.run([
+                    "pdftotext", "-layout", repaired, tmp.name
+                ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                txt = open(tmp.name, encoding="utf-8", errors="ignore").read()
+                if len(txt.strip()) > OCR_THRESHOLD:
+                    return txt
+            except Exception:
+                pass
+            finally:
+                try:
+                    os.remove(tmp.name)
+                except Exception:
+                    pass
+        else:
+            try:
+                import pdftotext
+                with open(repaired, "rb") as f:
+                    pdf_doc = pdftotext.PDF(f)
+                txt = "\n\n".join(pdf_doc)
+                if len(txt.strip()) > OCR_THRESHOLD:
+                    return txt
+            except Exception:
+                pass
 
-    try:
-        from pdf2image import convert_from_path
-        images = convert_from_path(
-            path, dpi=300, timeout=PDF2IMAGE_TIMEOUT
-        )
-        return "\n\n".join(
-            pytesseract.image_to_string(
-                img, lang=OCR_LANGUAGES, config=TESSERACT_CONFIG
+        try:
+            from pdf2image import convert_from_path
+            images = convert_from_path(
+                repaired, dpi=300, timeout=PDF2IMAGE_TIMEOUT
             )
-            for img in images
-        )
-    except Exception as e:
-        logging.error(f"OCR final falhou: {e}")
-        return text
+            return "\n\n".join(
+                pytesseract.image_to_string(
+                    img, lang=OCR_LANGUAGES, config=TESSERACT_CONFIG
+                )
+                for img in images
+            )
+        except Exception as e:
+            logging.error(f"OCR final falhou: {e}")
+            return text
+    finally:
+        if repaired != path:
+            try:
+                os.remove(repaired)
+            except Exception:
+                pass

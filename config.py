@@ -36,7 +36,8 @@ DIM_MPNET     = int(os.getenv("DIM_MPNET", "0"))
 
 # — Parâmetros OCR
 OCR_THRESHOLD = int(os.getenv("OCR_THRESHOLD", "100"))
-OCR_LANGUAGES = os.getenv("OCR_LANGUAGES")
+# Usa 'eng+por' como padrão se OCR_LANGUAGES não estiver definido
+OCR_LANGUAGES = os.getenv("OCR_LANGUAGES", "eng+por")
 # Timeout máximo para pdf2image.convert_from_path (segundos)
 PDF2IMAGE_TIMEOUT = int(os.getenv("PDF2IMAGE_TIMEOUT", "600"))
 # Parâmetros adicionais passados ao Tesseract (ex: "--oem 3 --psm 6")
