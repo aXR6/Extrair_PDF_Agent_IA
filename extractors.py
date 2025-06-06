@@ -15,7 +15,12 @@ from langchain_community.document_loaders import (
 )
 from PIL import Image
 
-from config import OCR_LANGUAGES, OCR_THRESHOLD
+from config import (
+    OCR_LANGUAGES,
+    OCR_THRESHOLD,
+    PDF2IMAGE_TIMEOUT,
+    TESSERACT_CONFIG,
+)
 from utils import repair_pdf
 
 
@@ -64,9 +69,13 @@ class OCRStrategy:
 
             # Caso contrário, usa OCR em imagem
             from pdf2image import convert_from_path
-            images = convert_from_path(path, dpi=300)
+            images = convert_from_path(
+                path, dpi=300, timeout=PDF2IMAGE_TIMEOUT
+            )
             return "\n\n".join(
-                pytesseract.image_to_string(img, lang=OCR_LANGUAGES)
+                pytesseract.image_to_string(
+                    img, lang=OCR_LANGUAGES, config=TESSERACT_CONFIG
+                )
                 for img in images
             )
         except Exception as e:
@@ -99,7 +108,9 @@ class ImageOCRStrategy:
     def extract(self, path: str) -> str:
         try:
             img = Image.open(path)
-            return pytesseract.image_to_string(img, lang=OCR_LANGUAGES)
+            return pytesseract.image_to_string(
+                img, lang=OCR_LANGUAGES, config=TESSERACT_CONFIG
+            )
         except Exception as e:
             logging.error(f"Erro ImageOCRStrategy: {e}")
             return ""
@@ -194,9 +205,13 @@ def extract_text(path: str, strategy: str) -> str:
 
     try:
         from pdf2image import convert_from_path
-        images = convert_from_path(path, dpi=300)
+        images = convert_from_path(
+            path, dpi=300, timeout=PDF2IMAGE_TIMEOUT
+        )
         return "\n\n".join(
-            pytesseract.image_to_string(img, lang=OCR_LANGUAGES)
+            pytesseract.image_to_string(
+                img, lang=OCR_LANGUAGES, config=TESSERACT_CONFIG
+            )
             for img in images
         )
     except Exception as e:
