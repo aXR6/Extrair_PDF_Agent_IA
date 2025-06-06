@@ -10,8 +10,7 @@ PyPDF2
 PyMuPDF
 python-docx
 pdfplumber
-tika
-unstructured
+unstructured[docx]
 pymupdf4llm
 
 # === Chunking semântico / embeddings / NLP ===
