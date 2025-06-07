@@ -19,6 +19,7 @@ from config import (
 )
 from extractors import extract_text
 from utils import setup_logging, is_valid_file, build_record, move_to_processed
+from constants import VALID_EXTS
 from pg_storage import save_to_postgres
 from metrics import start_metrics_server
 
@@ -224,10 +225,7 @@ def main():
                 if "Processado" in dirs:
                     dirs.remove("Processado")
                 for fname in files_:
-                    if fname.lower().endswith((
-                        ".pdf", ".docx", ".png", ".jpg", ".jpeg", ".tiff",
-                        ".tif", ".bmp"
-                    )):
+                    if fname.lower().endswith(VALID_EXTS):
                         files.append(os.path.join(root, fname))
 
             total_files = len(files)

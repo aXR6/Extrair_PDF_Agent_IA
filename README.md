@@ -21,7 +21,7 @@ Pipeline completo para processamento de documentos PDF, DOCX e imagens, incluind
 ### 1. Extração de Texto
 
 - Detecção automática de PDFs criptografados com fallback para OCR (`pytesseract` + `pdf2image`)
-- Suporte a OCR direto em imagens (PNG, JPG, JPEG, TIFF, BMP)
+- Suporte a OCR direto em imagens (PNG, JPG, JPEG, TIFF (.tif) e BMP (.bmp))
 
 **Estratégias Disponíveis:**
 - PyPDFLoader (LangChain)
