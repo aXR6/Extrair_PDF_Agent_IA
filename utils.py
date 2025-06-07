@@ -11,6 +11,7 @@ import pikepdf
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 
 from config import CHUNK_SIZE, CHUNK_OVERLAP, SEPARATORS
+from constants import VALID_EXTS
 
 def setup_logging():
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -27,11 +28,8 @@ def build_record(path: str, text: str) -> dict:
     return {'text': text, 'info': info, 'version': '2.16.105'}
 
 def is_valid_file(path: str) -> bool:
-    # aceita PDF, DOCX e formatos de imagem
-    valid_ext = (
-        '.pdf', '.docx', '.png', '.jpg', '.jpeg', '.tiff', '.tif', '.bmp'
-    )
-    if not os.path.isfile(path) or not path.lower().endswith(valid_ext):
+    """Verifica extensão suportada."""
+    if not os.path.isfile(path) or not path.lower().endswith(VALID_EXTS):
         logging.error(f"Arquivo inválido: {path}")
         return False
     return True
@@ -79,6 +77,7 @@ def repair_pdf(path: str) -> str:
     # mutool clean
     try:
         tmp0 = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
+        tmp0.close()
         subprocess.run(
             ["mutool", "clean", "-d", path, tmp0.name],
             check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
@@ -94,6 +93,7 @@ def repair_pdf(path: str) -> str:
     # pikepdf
     try:
         tmp1 = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
+        tmp1.close()
         with pikepdf.Pdf.open(path) as pdf:
             pdf.save(tmp1.name)
         return tmp1.name
@@ -107,6 +107,7 @@ def repair_pdf(path: str) -> str:
     # Ghostscript
     try:
         tmp2 = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
+        tmp2.close()
         cmd = [
             "gs", "-q", "-dNOPAUSE", "-dBATCH",
             "-sDEVICE=pdfwrite", "-dCompatibilityLevel=1.4",

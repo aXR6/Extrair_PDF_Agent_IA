@@ -23,6 +23,7 @@ from config import (
     TESSERACT_CONFIG,
 )
 from utils import repair_pdf
+from constants import VALID_EXTS, IMAGE_EXTS
 
 
 # ---------------------------------------------------------------------------
@@ -141,7 +142,7 @@ def extract_text(path: str, strategy: str) -> str:
     """
     lower = path.lower()
     # Imagens --> OCR direto
-    if lower.endswith((".png", ".jpg", ".jpeg", ".tiff", ".tif", ".bmp")):
+    if lower.endswith(IMAGE_EXTS):
         return STRATEGIES_MAP["image"].extract(path)
 
     # DOCX --> Unstructured
@@ -183,11 +184,13 @@ def extract_text(path: str, strategy: str) -> str:
 
         if shutil.which("pdftotext"):
             tmp = tempfile.NamedTemporaryFile(suffix=".txt", delete=False)
+            tmp.close()
             try:
                 subprocess.run([
                     "pdftotext", "-layout", repaired, tmp.name
                 ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                txt = open(tmp.name, encoding="utf-8", errors="ignore").read()
+                with open(tmp.name, encoding="utf-8", errors="ignore") as fh:
+                    txt = fh.read()
                 if len(txt.strip()) > OCR_THRESHOLD:
                     return txt
             except Exception:
