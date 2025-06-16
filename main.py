@@ -23,9 +23,8 @@ from constants import VALID_EXTS
 from pg_storage import save_to_postgres
 from metrics import start_metrics_server
 
-# Valida configuração e inicializa logs e métricas
+# Valida configuração e inicia métricas
 validate_config()
-setup_logging()
 start_metrics_server()
 
 # Opções de menu
@@ -160,6 +159,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args()
+
+    setup_logging(args.verbose)
 
     strat = "ocr"
     model = OLLAMA_EMBEDDING_MODEL

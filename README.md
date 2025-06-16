@@ -95,7 +95,7 @@ Todos os modelos e dimensões são configuráveis no arquivo `.env`.
 - Sair
 
 **Flags:**
-- `--verbose`: logs detalhados
+- `--verbose`: ativa logs em nível DEBUG
 
 **Progresso:** `tqdm` com `set_postfix` para processados/erros
 
@@ -217,6 +217,7 @@ Execute o DDL completo para criar tabelas, dicionários, configuração FTS, tri
 ## Executando o CLI
 
 ```bash
+# Use --verbose para habilitar logs em nível DEBUG
 python3 main.py [--verbose]
 ```
 
