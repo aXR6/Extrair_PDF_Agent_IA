@@ -5,9 +5,6 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# — NVD API Key (para incremental)
-NVD_API_KEY = os.getenv("NVD_API_KEY")
-
 # — PostgreSQL Connection
 PG_HOST     = os.getenv("PG_HOST")
 PG_PORT     = int(os.getenv("PG_PORT", "5432"))
@@ -15,9 +12,6 @@ PG_USER     = os.getenv("PG_USER")
 PG_PASSWORD = os.getenv("PG_PASSWORD")
 PG_DATABASE = os.getenv("PG_DATABASE")
 
-# — CSV locais (NVD)
-CSV_FULL = os.getenv("CSV_FULL")
-CSV_INCR = os.getenv("CSV_INCR")
 
 # — Modelos de Embedding & Chunking
 OLLAMA_EMBEDDING_MODEL  = os.getenv("OLLAMA_EMBEDDING_MODEL")
@@ -47,7 +41,6 @@ TESSERACT_CONFIG = os.getenv("TESSERACT_CONFIG", "")
 CHUNK_SIZE                   = int(os.getenv("CHUNK_SIZE", "0"))
 CHUNK_OVERLAP                = int(os.getenv("CHUNK_OVERLAP", "0"))
 SLIDING_WINDOW_OVERLAP_RATIO = float(os.getenv("SLIDING_WINDOW_OVERLAP_RATIO", "0.0"))
-MAX_SEQ_LENGTH               = int(os.getenv("MAX_SEQ_LENGTH", "0"))
 SEPARATORS                   = os.getenv("SEPARATORS", "").split("|")
 
 def validate_config():

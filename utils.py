@@ -54,23 +54,6 @@ def filter_paragraphs(text: str) -> List[str]:
         result.append(p)
     return result
 
-def chunk_text(text: str, metadata: dict) -> List[str]:
-    paras = filter_paragraphs(text)
-    chunks: List[str] = []
-    for p in paras:
-        if len(p) <= CHUNK_SIZE:
-            chunks.append(p)
-        else:
-            overlap = min(CHUNK_OVERLAP, len(p) // 2)
-            splitter = RecursiveCharacterTextSplitter(
-                separators=SEPARATORS,
-                chunk_size=CHUNK_SIZE,
-                chunk_overlap=overlap
-            )
-            sub = splitter.split_text(p)
-            chunks.extend(sub or [p])
-    return chunks
-
 def repair_pdf(path: str) -> str:
     """
     Tenta consertar o PDF em múltiplas etapas: mutool, pikepdf, Ghostscript.
