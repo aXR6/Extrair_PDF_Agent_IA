@@ -13,8 +13,10 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from config import CHUNK_SIZE, CHUNK_OVERLAP, SEPARATORS
 from constants import VALID_EXTS
 
-def setup_logging():
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+def setup_logging(verbose: bool = False) -> None:
+    """Configure basic logging level."""
+    level = logging.DEBUG if verbose else logging.INFO
+    logging.basicConfig(level=level, format='%(asctime)s - %(levelname)s - %(message)s')
 
 def build_record(path: str, text: str) -> dict:
     try:
