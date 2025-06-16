@@ -157,11 +157,8 @@ pip install -r requirements.txt
 ---
 
 ## Exemplo de `.env`
-Substitua `YOUR_NVD_API_KEY` pela chave obtida no portal da NVD.
 
 ```env
-# NVD API Key (para incremental)
-NVD_API_KEY=YOUR_NVD_API_KEY
 
 # PostgreSQL Connection
 PG_HOST=172.16.187.133
@@ -192,12 +189,8 @@ PDF2IMAGE_TIMEOUT=600
 CHUNK_SIZE=1024
 CHUNK_OVERLAP=700
 SLIDING_WINDOW_OVERLAP_RATIO=0.25
-MAX_SEQ_LENGTH=128
 SEPARATORS="\n\n|\n|\.|!|\?|;"
 
-# CSV locais (NVD)
-CSV_FULL=vulnerabilidades_full.csv
-CSV_INCR=vulnerabilidades_incrementais.csv
 ```
 
 ---
