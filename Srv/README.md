@@ -343,5 +343,5 @@ docker run -d -p 11435:11435 --name embed-server embedding-server:latest
 
 ## Licença
 
-Consulte o arquivo [LICENSE](LICENSE) para mais informações.
+Consulte o arquivo [LICENSE](../LICENSE) para mais informações.
 
