@@ -9,3 +9,4 @@ listar.sh
 
 # Ignorar arquivos pycache em qualquer lugar
 __pycache__/
+*.py[cod]
