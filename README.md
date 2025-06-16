@@ -157,10 +157,11 @@ pip install -r requirements.txt
 ---
 
 ## Exemplo de `.env`
+Substitua `YOUR_NVD_API_KEY` pela chave obtida no portal da NVD.
 
 ```env
 # NVD API Key (para incremental)
-NVD_API_KEY=98dbb4f5-7540-4ca1-ae81-ffabf4b076b6
+NVD_API_KEY=YOUR_NVD_API_KEY
 
 # PostgreSQL Connection
 PG_HOST=172.16.187.133
